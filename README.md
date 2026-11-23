@@ -1,5 +1,7 @@
 # K2 OpenKlipper Touchscreen
 
+Contributions go through pull requests reviewed by @carmanspb. See [Contributing](CONTRIBUTING.md).
+
 Touchscreen interface for [K2 OpenKlipper](https://github.com/grant0013/K2-OpenKlipper).
 
 This repository contains the touchscreen component. Live printer controls require
