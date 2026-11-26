@@ -530,6 +530,26 @@ class ServiceTests(unittest.TestCase):
         replace.assert_called_once_with("/tmp/localtime.new", "/tmp/localtime")
         refresh.assert_called_once_with()
 
+    def test_timezone_setting_without_tzset(self):
+        # The printer's Python has no time.tzset. Applying a zone must still
+        # complete after persisting UCI and replacing the runtime zonefile.
+        zone_root = Path(self.tmp.name) / "zoneinfo"
+        zone_root.mkdir()
+        (zone_root / "EET").write_bytes(b"TZif")
+        with (
+            mock.patch.object(platform_services, "ZONEINFO", str(zone_root)),
+            mock.patch("platform_services.subprocess.call") as command,
+            mock.patch("platform_services.os.symlink") as link,
+            mock.patch("platform_services.os.replace") as replace,
+            mock.patch("platform_services.os.path.lexists", return_value=False),
+            mock.patch.object(platform_services, "time", spec=["time"]),
+        ):
+            platform_services.time.time.return_value = 0
+            platform_services.set_system_zone("EET")
+        self.assertEqual(command.call_count, 2)
+        link.assert_called_once_with(str(zone_root / "EET"), "/tmp/localtime.new")
+        replace.assert_called_once_with("/tmp/localtime.new", "/tmp/localtime")
+
     def test_timezone_presets_read_retained_firmware_mapping(self):
         import storage
 
