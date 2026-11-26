@@ -419,15 +419,26 @@ void views_refresh(void) {
             cJSON *target = cJSON_GetArrayItem(J("motion.target"), i);
             bool moving = cJSON_IsTrue(cJSON_GetArrayItem(J("motion.moving"), i)) &&
                           cJSON_IsNumber(p) && cJSON_IsNumber(target);
-            const lv_font_t *font = moving ? &font_ui_17 : &font_ui_24;
-            if (lv_obj_get_style_text_font(app.positions[i], 0) != font)
-                lv_obj_set_style_text_font(app.positions[i], font, 0);
-            if (moving)
-                snprintf(value, sizeof(value), "%.2f → %.2f", p->valuedouble, target->valuedouble);
-            else
-                snprintf(value, sizeof(value), "%.2f", cJSON_IsNumber(p) ? p->valuedouble : 0);
-            label_update(app.positions[i],
-                         strchr(S("status.toolhead.homed_axes"), "xyz"[i]) ? value : "—");
+            bool homed = strchr(S("status.toolhead.homed_axes"), "xyz"[i]) != NULL;
+            moving = moving && homed;
+            snprintf(value, sizeof(value), "%.2f", cJSON_IsNumber(p) ? p->valuedouble : 0);
+            label_update(app.positions[i], homed ? value : "—");
+            lv_obj_align(app.positions[i], LV_ALIGN_CENTER, 2, moving ? -12 : 0);
+            if (moving) {
+                snprintf(value, sizeof(value), "%.2f", target->valuedouble);
+                label_update(app.position_targets[i], value);
+                lv_point_t size;
+                lv_txt_get_size(&size, value, &font_ui_17, 0, 0, 146, LV_TEXT_FLAG_NONE);
+                int x = 113 - (size.x + 22) / 2;
+                lv_obj_set_pos(app.position_arrows[i], x, 44 + (size.y - 16) / 2);
+                lv_obj_set_pos(app.position_targets[i], x + 22, 44);
+                lv_obj_set_width(app.position_targets[i], size.x);
+                lv_obj_clear_flag(app.position_arrows[i], LV_OBJ_FLAG_HIDDEN);
+                lv_obj_clear_flag(app.position_targets[i], LV_OBJ_FLAG_HIDDEN);
+            } else {
+                lv_obj_add_flag(app.position_arrows[i], LV_OBJ_FLAG_HIDDEN);
+                lv_obj_add_flag(app.position_targets[i], LV_OBJ_FLAG_HIDDEN);
+            }
         }
     }
     if (app.status_label) {
@@ -551,10 +562,16 @@ static void move_view(void) {
         snprintf(action, sizeof(action), "position:%c", "XYZ"[i]);
         lv_obj_t *field = button(app.content, "", 452, 108 + i * 84, 222, 76,
                                  axis_homed("xyz"[i]) ? action : NULL, false);
-        text(field, axis, 12, 24, 24, &font_ui_20, true);
-        app.positions[i] = text(field, "—", 40, 23, 146, &font_ui_24, false);
+        lv_obj_t *axis_label = text(field, axis, 12, 0, 24, &font_ui_20, true);
+        lv_obj_align(axis_label, LV_ALIGN_LEFT_MID, 12, 0);
+        app.positions[i] = text(field, "—", 40, 0, 146, &font_ui_24, false);
         centered(app.positions[i]);
-        icon(field, "pencil", 194, 30, 16, colour("a4aebb"));
+        app.position_targets[i] = text(field, "", 40, 44, 146, &font_ui_17, true);
+        icon(field, "arrow-right", 40, 44, 16, colour("a4aebb"));
+        app.position_arrows[i] = lv_obj_get_child(field, -1);
+        icon(field, "pencil", 0, 0, 16, colour("a4aebb"));
+        lv_obj_t *edit = lv_obj_get_child(field, -1);
+        lv_obj_align(edit, LV_ALIGN_RIGHT_MID, -12, 0);
     }
     bool enabled = motors_locked();
     lv_obj_t *mesh = button(app.content, "", 452, 398, 105, 64,

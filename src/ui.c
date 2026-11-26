@@ -108,9 +108,9 @@ static ConnectionMode connection_state(void) {
     const char *state = S("status.webhooks.state");
     bool complete = app.connected && !strcmp(state, "ready") &&
                     cJSON_GetArraySize(J("settings")) > 0 && cJSON_GetArraySize(J("heaters")) > 0;
-    if (complete && ((!app.restart_waiting && app.ever_ready) ||
-                     !cJSON_IsObject(J("status.k2_motor_bus")) ||
-                     B("status.k2_motor_bus.motors_ready")))
+    if (complete &&
+        ((!app.restart_waiting && app.ever_ready) || !cJSON_IsObject(J("status.k2_motor_bus")) ||
+         B("status.k2_motor_bus.motors_ready")))
         return CONNECTION_READY;
     return app.ever_ready || !strcmp(state, "error") || !strcmp(state, "shutdown")
                ? CONNECTION_LOST
@@ -907,10 +907,12 @@ void ui_data(cJSON *data) {
     ConnectionMode previous_connection = ui_connection_mode();
     bool previous_link = app.service_link;
     bool view_changed = ui_view_changed(app.data, data);
-    bool policy_changed = !json_equal(J("availability"), json_update_value(app.data, data, "availability"));
-    bool activity_changed = !json_equal(J("operations"), json_update_value(app.data, data, "operations")) ||
-                            !json_equal(J("operation"), json_update_value(app.data, data, "operation")) ||
-                            !json_equal(J("filament_activity"), json_update_value(app.data, data, "filament_activity"));
+    bool policy_changed =
+        !json_equal(J("availability"), json_update_value(app.data, data, "availability"));
+    bool activity_changed =
+        !json_equal(J("operations"), json_update_value(app.data, data, "operations")) ||
+        !json_equal(J("operation"), json_update_value(app.data, data, "operation")) ||
+        !json_equal(J("filament_activity"), json_update_value(app.data, data, "filament_activity"));
     bool session_changed = strcmp(S("session"), jstr(data, "session", "")) != 0;
     char previous_home[1024];
     home_state(previous_home, sizeof(previous_home));
@@ -1315,6 +1317,8 @@ void ui_render(void) {
     memset(app.target, 0, sizeof(app.target));
     memset(app.temperature_arrow, 0, sizeof(app.temperature_arrow));
     memset(app.positions, 0, sizeof(app.positions));
+    memset(app.position_targets, 0, sizeof(app.position_targets));
+    memset(app.position_arrows, 0, sizeof(app.position_arrows));
     app.extrusion_temp = NULL;
     app.status_label = app.time_label = app.layer_label = app.progress = app.percent = NULL;
     lv_obj_clean(app.content);
