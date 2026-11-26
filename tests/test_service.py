@@ -95,6 +95,26 @@ class ServiceTests(unittest.TestCase):
         self.s.prepare_artwork()
         self.assertEqual(self.s.platform["printer_image"], with_cfs)
 
+    def test_layered_spool_flag_survives_repeated_platform_refreshes(self):
+        with (
+            mock.patch("service.storage.system_identity", return_value={}),
+            mock.patch("service.platform.usb_disk", return_value=None),
+            mock.patch("service.storage.free_space", return_value="1 GB"),
+            mock.patch("service.platform.system_zone", return_value="UTC"),
+            mock.patch("service.subprocess.check_output", return_value=b"version=test"),
+            mock.patch.object(self.s.wifi, "status", return_value={}),
+        ):
+            self.s.refresh_platform()
+            signature = self.s.artwork_key
+            self.assertTrue(self.s.platform["printer_spools"])
+            for _ in range(3):
+                self.s.refresh_platform()
+                self.assertEqual(self.s.artwork_key, signature)
+                self.assertTrue(self.s.snapshot()["platform"]["printer_spools"])
+            self.s.status["k2_cfs"]["fitted"] = False
+            self.s.refresh_platform()
+            self.assertFalse(self.s.platform["printer_spools"])
+
     def test_legacy_image_override_does_not_change_automatic_artwork(self):
         self.s.config.set("brand", "status_image", "/missing/obsolete-printer.png")
         self.s.prepare_artwork()

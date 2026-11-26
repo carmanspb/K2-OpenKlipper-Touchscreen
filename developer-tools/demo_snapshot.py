@@ -141,6 +141,8 @@ def snapshot(printing=False):
 
 SCENARIOS = (
     "idle",
+    "cfs-colours",
+    "cfs-empty",
     "idle-lit",
     "spool-inserted",
     "spool-removed",
@@ -248,6 +250,7 @@ def preview_scenario(name="idle", printing=False):
     data["platform"].update(
         estimated_time=4500,
         printer_image=str(FIXTURES / "assets/demo-printer-combo.png"),
+        printer_spools=True,
         thumbnail=str(ROOT / "developer-tools/fixtures/assets/demo-part.png"),
         file_thumbnail=str(ROOT / "developer-tools/fixtures/assets/demo-part.png"),
         file_thumbnails={
@@ -540,6 +543,14 @@ def preview_scenario(name="idle", printing=False):
     data["availability"] = action_policy.availability(
         data["status"], data["connected"], data.get("operations", [])
     )
+    if name in ("cfs-colours", "cfs-empty"):
+        for slot, colour in zip(data["slots"], ("00FFFF", "000000", "FFFFFF", "FF6A00")):
+            slot["color"] = colour
+            if name == "cfs-empty":
+                slot["loaded"] = False
+        if name == "cfs-empty":
+            data["status"]["k2_cfs"]["active_slot"] = None
+            data["status"]["filament_switch_sensor filament_sensor"] = {"filament_detected": False}
     data["filament_activity"] = model.filament_activity(
         data["status"], data.get("operations", [])
     )
@@ -573,6 +584,7 @@ def preview_case(name):
             slots={}, map_targets=["E"], map_tools=["T0"]
         )
         data["slots"] = []
+        data["platform"]["printer_spools"] = False
         data["cfs_units"] = 0
         data["metadata"]["suggested_mapping"] = {}
         data["availability"] = action_policy.availability(
