@@ -403,6 +403,8 @@ sh /mnt/UDISK/openklipper-screen/uninstall.sh
 
 - Selects and checks the latest public upstream release, including prereleases, using the upstream installer’s release-selection order.
 - Stops the native screen and backend, then performs a full upstream reinstall.
+- Restores HarkScreen display settings from the newest available installer backups when they are missing, then restarts HarkScreen to load them. Existing HarkScreen settings take priority.
+- Keeps the current system timezone; restored `auto` follows that timezone.
 - Verifies HarkScreen startup before deleting the native runtime and its display settings.
 - Retains printer configuration, G-code files and the existing installer backups.
 
