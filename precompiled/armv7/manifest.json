@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "built_from_commit": "594ac8dd5e45e5f7c69e1586a6d5657d8b44a17c",
+  "built_from_commit": "a7c1644f2609e44faf78d928cde5482217a11cfd",
   "source_inputs": {
     "touchscreen/LICENSE": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
     "touchscreen/assets/Liberation-LICENSE": "f32df582a2aab128c07b2f7e36e7b928dc5f6bd82657b905c04f91459f9e5cf9",
@@ -40,7 +40,7 @@
     "touchscreen/developer-tools/package_arm.py": "efd5c8ec52921a7c3b85129cc87c69782f4b62a28ce53f5094246d28d374cf0b",
     "touchscreen/installation/install.sh": "c471599048c5fdeb897266b493fc828dfe2b5f01248f37f37eab9e0f07d601c8",
     "touchscreen/installation/migrate.py": "cf392574eaade446f32cc0adf612eaa7a96d3177f35ef8e6af3cd82c37abe314",
-    "touchscreen/installation/uninstall.py": "6c7546cdab1a617642803f8112534efa7d42a52d8215f1ab52f5b813ababf9ae",
+    "touchscreen/installation/uninstall.py": "6efa89cacdbb4669cae49798ba45ab64a2818534d21c576152e73f3e5fba0987",
     "touchscreen/installation/uninstall.sh": "2137b9cdf2083617ea69cd9e8e2cc3db7ff72d8eba428c8051aee16f71ed0169",
     "touchscreen/installation/validate_package.py": "1531fb9c3bd3514b310dffa7c734be2aaa280d2cc2061dfb6a01b3f4d8eefc75",
     "touchscreen/runtime/launch.py": "7d482ccee3d425fafd56cd53e10cdfd78815602038875d4cc2d9fb09434e53ed",
@@ -57,10 +57,10 @@
     "VERSION": "a12a1be3f3ee06a3159f695083ad52c3f3dc2ae1f071b7aece71cfe4c1f1e133",
     "install.sh": "a18c37fe50db5b2a33c5659cccf2a7e5c5d9029bb4c28d47bbc45979eaea59ee"
   },
-  "source_fingerprint": "cdcd1d7375b27d43d50369c88c2df14200c2cef1ba43947bf65e483276105231",
+  "source_fingerprint": "bbe87439a7615d5299719bd0783d628d3b55ad488691af17082668c8530846fd",
   "target": "armv7-linux-gnueabihf",
   "files": {
-    "VERSION": "4315c916d1bb71e20f7c7f37de4a4a06bf358da9c0053ced08dc74328400501b",
+    "VERSION": "b99b119fbe765eb006214aa434d0857df9585581e2a5810d1e2d2f8193242eb2",
     "assets/activity-24.png": "9d0040919c37b7592ea3ca004f464b8ea9280ac9913c8d5e61ffcdf65caa8c22",
     "assets/arrow-big-up-28.png": "ba160bf471039cad4e702630eda547c05c26a465762931fea9dac94ddaef20ba",
     "assets/arrow-down-36.png": "c215f324f01fe17e22a598a5a15505d7581ff4009eb08753d133853eb7e0628c",
