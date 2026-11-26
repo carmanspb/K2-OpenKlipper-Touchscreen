@@ -27,6 +27,26 @@ class MigrationTest(unittest.TestCase):
             migration.migrate(path / "native-screen.cfg", ROOT / "runtime/native-screen.cfg.example", path / "missing.cfg")
             self.assertEqual(migration.json.loads(prefs.read_text())["accent"], "#d9434a")
 
+    def test_timezone_auto_carries_over_and_repairs_existing_install(self):
+        for existing in (False, True):
+            with self.subTest(existing=existing), tempfile.TemporaryDirectory() as directory:
+                path = Path(directory)
+                target = path / "native-screen.cfg"
+                prefs = path / "native-screen-settings.json"
+                (path / "harkscreen-settings.json").write_text('{"timezone": "auto"}')
+                if existing:
+                    target.write_text("[screen]\nrotate: 90\n")
+                    prefs.write_text('{"brightness": 40}')
+                migration.migrate(target, ROOT / "runtime/native-screen.cfg.example", path / "harkscreen.cfg")
+                result = migration.json.loads(prefs.read_text())
+                self.assertEqual(result["timezone"], "auto")
+                if existing:
+                    self.assertEqual(result["brightness"], 40)
+                result["timezone"] = "America/Detroit"
+                prefs.write_text(migration.json.dumps(result))
+                migration.migrate(target, ROOT / "runtime/native-screen.cfg.example", path / "harkscreen.cfg")
+                self.assertEqual(migration.json.loads(prefs.read_text())["timezone"], "America/Detroit")
+
     def test_active_usb_storage_selection_survives_migration(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory)

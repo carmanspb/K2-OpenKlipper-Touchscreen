@@ -1671,6 +1671,9 @@ class Service:
 
     def current_preferences(self):
         prefs = dict(self.prefs)
+        # Resolve HarkScreen's auto mode for display; retain the saved preference.
+        if prefs.get("timezone") == "auto":
+            prefs["timezone"] = self.platform.get("timezone", "")
         prefs.setdefault("accent", "#3d8bfd")
         prefs["sleep_after"] = int(
             prefs.get(

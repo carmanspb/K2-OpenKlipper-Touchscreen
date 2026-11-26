@@ -507,6 +507,15 @@ class ServiceTests(unittest.TestCase):
                         self.s.poll()
                 self.assertEqual(self.s.connected, live)
 
+    def test_timezone_auto_uses_live_system_zone_without_rewriting_preference(self):
+        self.s.prefs["timezone"] = "auto"
+        for zone in ("EET", "EST"):
+            self.s.platform["timezone"] = zone
+            self.assertEqual(self.s.current_preferences()["timezone"], zone)
+            self.assertEqual(self.s.prefs["timezone"], "auto")
+        self.s.prefs["timezone"] = "America/Detroit"
+        self.assertEqual(self.s.current_preferences()["timezone"], "America/Detroit")
+
     def test_timezone_setting_updates_uci_and_runtime_zonefile(self):
         zone_root = Path(self.tmp.name) / "zoneinfo"
         zone = zone_root / "America" / "Detroit"
