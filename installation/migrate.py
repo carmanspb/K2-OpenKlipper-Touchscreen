@@ -47,13 +47,12 @@ def migrate(config, example, legacy, model=""):
                 native.set(section, key, previous.get(section, key))
     with config.open("w") as stream:
         native.write(stream)
-    prefs = {}
+    prefs = {"accent": "#3d8bfd"}
     try:
         old = json.loads(Path(legacy).with_name("harkscreen-settings.json").read_text())
     except (OSError, ValueError):
         old = {}
     for key in (
-        "accent",
         "brightness",
         "sleep_after",
         "idle",
@@ -66,8 +65,6 @@ def migrate(config, example, legacy, model=""):
     ):
         if key in old:
             prefs[key] = old[key]
-    if "accent" not in prefs and previous.has_option("theme", "accent"):
-        prefs["accent"] = previous.get("theme", "accent")
     target = config.with_name("native-screen-settings.json")
     if prefs and not target.exists():
         target.write_text(json.dumps(prefs, indent=2) + "\n")

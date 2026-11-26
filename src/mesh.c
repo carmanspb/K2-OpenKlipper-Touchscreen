@@ -222,13 +222,24 @@ void mesh_view(void) {
         center(text(app.content, "Meshing in progress…", 0, 265, 674, &font_ui_30, false));
         return;
     }
+    double low, high;
+    int rows, cols;
+    bool valid = limits(&low, &high, &rows, &cols);
+    if (!valid && !cJSON_GetArraySize(J("status.bed_mesh.profiles"))) {
+        center(text(app.content, "No bed mesh available", 0, 162, 674, &font_ui_30, false));
+        bool blocked = *ui_control_reason("calibrate:mesh");
+        center(text(app.content,
+                    blocked ? "Probe the bed when the printer is idle."
+                            : "Probe the bed to create your first mesh.",
+                    72, 218, 530, &font_ui_20, true));
+        if (!blocked && J("settings.bed_mesh"))
+            button_fixed(app.content, "Probe", 212, 296, 250, 64, "calibrate:mesh", false);
+        return;
+    }
     lv_obj_t *measure = button(app.content, "Probe", 480, 15, 194, 56,
                                J("settings.bed_mesh") ? "calibrate:mesh" : NULL, false);
     lv_obj_set_pos(measure, 480, 15);
     lv_obj_set_height(measure, 56);
-    double low, high;
-    int rows, cols;
-    bool valid = limits(&low, &high, &rows, &cols);
     lv_obj_t *surface = card(0, 88, 402, 378);
     if (valid) {
         lv_obj_t *plot = box(surface, 6, 8, 390, 300, false);

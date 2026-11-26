@@ -44,6 +44,8 @@ def main():
             ("meshing", "mesh", "meshing", []),
             ("mesh-flat", "mesh", "mesh-flat", []),
             ("mesh-empty", "mesh", "mesh-empty", []),
+            ("mesh-empty-printing", "mesh", "mesh-empty-printing", []),
+            ("move-live", "move", "moving", []),
             ("mesh-unloaded", "mesh", "mesh-unloaded", []),
             ("mesh-printing", "mesh", "mesh-printing", []),
             ("motors-off", "move", "motors-off", []),

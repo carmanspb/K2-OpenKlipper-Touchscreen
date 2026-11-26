@@ -162,6 +162,9 @@ SCENARIOS = (
     "meshing",
     "mesh",
     "mesh-empty",
+    "mesh-empty-printing",
+    "mesh-empty-busy",
+    "moving",
     "mesh-unloaded",
     "mesh-flat",
     "mesh-printing",
@@ -187,7 +190,7 @@ SCENARIOS = (
 
 
 def preview_scenario(name="idle", printing=False):
-    data = snapshot(printing or name in ("printing", "heating", "mesh-printing"))
+    data = snapshot(printing or name in ("printing", "heating", "mesh-printing", "mesh-empty-printing"))
     # Synthetic 9-by-9 surface: a small tilt, central rise and shallow valley.
     points = [
         [
@@ -224,12 +227,17 @@ def preview_scenario(name="idle", printing=False):
         }
         for title, offset in (("Demo bed", 0), ("PLA 60C", -0.02), ("PETG 80C", 0.035))
     }
-    if name in ("mesh-empty", "mesh-unloaded"):
+    if name in ("mesh-empty", "mesh-unloaded", "mesh-empty-printing", "mesh-empty-busy"):
         data["status"]["bed_mesh"].update(
             profile_name="", probed_matrix=[], mesh_matrix=[]
         )
-        if name == "mesh-empty":
+        if name.startswith("mesh-empty"):
             data["status"]["bed_mesh"]["profiles"] = {}
+    if name == "moving":
+        data["motion"] = {"current": [100, 150, 10], "target": [300, 250, 10], "moving": [True, True, False]}
+    if name == "mesh-empty-busy":
+        data["operations"] = [{"action": "calibrate", "kind": "z_tilt", "label": "Z tilt",
+                               "resources": sorted(action_policy.describe({"action": "calibrate"}).resources)}]
     if name == "motors-off":
         data["status"]["stepper_enable"]["steppers"] = {
             "stepper_x": False,

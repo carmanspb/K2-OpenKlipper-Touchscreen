@@ -413,10 +413,21 @@ void views_refresh(void) {
             }
         }
         if (app.positions[i]) {
-            cJSON *p = cJSON_GetArrayItem(J("status.gcode_move.gcode_position"), i);
-            snprintf(value, sizeof(value), "%.2f", cJSON_IsNumber(p) ? p->valuedouble : 0);
+            cJSON *p = cJSON_GetArrayItem(J("motion.current"), i);
+            if (!cJSON_IsNumber(p))
+                p = cJSON_GetArrayItem(J("status.gcode_move.gcode_position"), i);
+            cJSON *target = cJSON_GetArrayItem(J("motion.target"), i);
+            bool moving = cJSON_IsTrue(cJSON_GetArrayItem(J("motion.moving"), i)) &&
+                          cJSON_IsNumber(p) && cJSON_IsNumber(target);
+            const lv_font_t *font = moving ? &font_ui_17 : &font_ui_24;
+            if (lv_obj_get_style_text_font(app.positions[i], 0) != font)
+                lv_obj_set_style_text_font(app.positions[i], font, 0);
+            if (moving)
+                snprintf(value, sizeof(value), "%.2f → %.2f", p->valuedouble, target->valuedouble);
+            else
+                snprintf(value, sizeof(value), "%.2f", cJSON_IsNumber(p) ? p->valuedouble : 0);
             label_update(app.positions[i],
-                              strchr(S("status.toolhead.homed_axes"), "xyz"[i]) ? value : "—");
+                         strchr(S("status.toolhead.homed_axes"), "xyz"[i]) ? value : "—");
         }
     }
     if (app.status_label) {
