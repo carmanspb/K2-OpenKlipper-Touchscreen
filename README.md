@@ -33,8 +33,8 @@ restarts its two processes; it does not require restarting Klipper.
 ## Home
 
 - Idle Home shows the printer illustration, automatically with or without CFS.
-- The pictured CFS follows its slot colours. Empty slots are unfilled, unknown
-  colours are gray; with several units, it follows the same unit as the Home shortcut.
+- The pictured CFS shows the reported slot colours, independently of the UI highlight colour.
+  Colours update in place; the illustration stays fixed.
 - Tap temperature tiles to change targets; open files, filament controls or fans,
   and switch the light.
 
@@ -45,6 +45,13 @@ restarts its two processes; it does not require restarting Klipper.
 | Live slot colours | Empty CFS |
 | --- | --- |
 | ![Live slot colours](screenshots/idle-cfs-colours.png) | ![Empty CFS](screenshots/idle-cfs-empty.png) |
+
+- Before slot data arrives, or when slots are empty or offline, the spools are
+  neutral/unfilled. A present filament with an unknown colour is gray.
+- With several CFS units, the illustration and Home shortcut show the unit
+  loading/unloading, otherwise the feeding unit, or the first available unit.
+- Loading/unloading keeps the colours while filament remains in the CFS.
+  Progress appears in the shortcut and sidebar; the illustrated spools stay still.
 
 ### During a print
 
