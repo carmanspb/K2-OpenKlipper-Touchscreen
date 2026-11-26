@@ -149,6 +149,8 @@ sh touchscreen/developer-tools/preview.sh --list
 | `multi-cfs-loading`, `cfs-load-failed` | Busy unit navigation and a failed load with no stale spinner |
 | `mesh`, `mesh-flat`, `mesh-empty`, `mesh-unloaded` | Rotatable sample mesh, flat surface, no data, and saved profiles with no active mesh |
 | `mesh-delete` | Inline saved-profile delete confirmation |
+| `mesh-empty-printing`, `mesh-empty-busy` | No saved or active mesh during a print or calibration |
+| `moving` | Move-page interpolated coordinates and destinations |
 | `mesh-printing`, `meshing` | Read-only viewing during a print and measurement progress |
 | `motors-on`, `motors-off` | Crossed/plain motor action icons and homing restrictions |
 | `file` | File preview, metadata and calibration option |
@@ -486,3 +488,18 @@ Run driver integration tests with an environment containing CFFI:
 ```sh
 python3 -m unittest discover -s tests -q
 ```
+
+### Rebuild the printer bundle from the standalone repository
+
+Compile the ARM target with CMake, then commit the runtime and build inputs.
+The package verifier checks those committed inputs before producing a bundle.
+When working outside the full K2-OpenKlipper checkout, supply its path as the
+installation context (VERSION and install.sh); this does not modify that checkout:
+
+```sh
+python3 developer-tools/package_arm.py --build out/arm --integration-root ../K2-OpenKlipper
+python3 installation/validate_package.py --source . --package precompiled/armv7 --integration-root ../K2-OpenKlipper
+```
+
+The resulting source fingerprints use the same paths as an integrated
+`touchscreen/` directory. Commit the updated precompiled bundle after packaging.

@@ -389,7 +389,11 @@ class Service:
             page = str(request.get("page", ""))[:48]
             with self.lock:
                 entering = page == "filament" and self.visible_page != page
+                changed_motion = (self.visible_page == "move") != (page == "move")
                 self.visible_page = page
+                if changed_motion:
+                    self.status.pop("motion_report", None)
+                    self.subscription_refresh.set()
             if entering:
                 threading.Thread(target=self.refresh_cfs, daemon=True).start()
             return
@@ -719,6 +723,8 @@ class Service:
                 "slots": slots,
                 "heaters": heaters,
                 "axes": axis,
+                "motion": model.motion_state(status, use_live=self.stream_connected)
+                if self.visible_page == "move" else {},
                 "materials": self.materials,
                 "resources": self.resources.descriptor,
                 "catalogue": self.catalogue.descriptor,
@@ -1616,6 +1622,15 @@ class Service:
             self.sequence += 1
             raise EOFError("Klipper state changed; renew the subscription")
 
+    def subscription_objects(self):
+        objects = {
+            name: list(SLOT_FIELDS) if name == "hark_cfs_slots" else None
+            for name in OBJECTS
+        }
+        if self.visible_page == "move":
+            objects["motion_report"] = ["live_position"]
+        return objects
+
     def stream(self):
         last_warning = 0.0
         while True:
@@ -1630,10 +1645,7 @@ class Service:
                         "jsonrpc": "2.0",
                         "id": 1,
                         "method": "printer.objects.subscribe",
-                        "params": {"objects": {
-                            name: list(SLOT_FIELDS) if name == "hark_cfs_slots" else None
-                            for name in OBJECTS
-                        }},
+                        "params": {"objects": self.subscription_objects()},
                     }
                 )
                 while True:
@@ -1642,14 +1654,13 @@ class Service:
                         ws.send({
                             "jsonrpc": "2.0", "id": 2,
                             "method": "printer.objects.subscribe",
-                            "params": {"objects": {
-                                name: list(SLOT_FIELDS) if name == "hark_cfs_slots" else None
-                                for name in OBJECTS
-                            }},
+                            "params": {"objects": self.subscription_objects()},
                         })
                     self.stream_message(ws.receive())
             except Exception as error:
-                self.stream_connected = False
+                with self.lock:
+                    self.stream_connected = False
+                    self.status.pop("motion_report", None)
                 if time.monotonic() - last_warning >= 30:
                     print("screen status stream: %s" % error, flush=True)
                     last_warning = time.monotonic()
@@ -1660,6 +1671,7 @@ class Service:
 
     def current_preferences(self):
         prefs = dict(self.prefs)
+        prefs.setdefault("accent", "#3d8bfd")
         prefs["sleep_after"] = int(
             prefs.get(
                 "sleep_after", self.config.get("screen", "sleep_after", fallback="600")
@@ -2252,6 +2264,9 @@ class Service:
         finally:
             with self.lock:
                 if self.view_client is connection:
+                    if self.visible_page == "move":
+                        self.status.pop("motion_report", None)
+                        self.subscription_refresh.set()
                     self.visible_page = ""
                     self.view_client = None
             connection.close()

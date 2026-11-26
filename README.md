@@ -129,15 +129,16 @@ returns to the previous page automatically.
 
 ### Move
 
+- Live coordinates show Klipper’s estimated position and destination while an axis moves. These updates are subscribed only while this page is open.
 - Home, jog X/Y and Z, or tap a coordinate to enter a destination within travel limits.
 - Motion and movement-step selection follow homing and operation availability.
   Printing is identified by Klipper print state, not its generic idle timer.
 - Extrude/retract only when the nozzle is hot enough and the printer state allows it.
 - Unlock motors for manual movement; confirmation warns that the bed may drop.
 
-| Movement | Unlock motors |
+| Movement | Live coordinates |
 | --- | --- |
-| ![Movement](screenshots/move.png) | ![Unlock motors](screenshots/unlock-motors.png) |
+| ![Movement](screenshots/move.png) | ![Live coordinates](screenshots/move-live.png) |
 
 ### Bed mesh
 
@@ -145,7 +146,7 @@ returns to the previous page automatically.
 - Review the mesh name, probe grid, minimum/maximum height and total Z range. Saved profiles stay in a scrollable list.
 - Probe again or save a named mesh. Each saved-profile row shows its Z range with inline Load and Delete controls; the active row has Rename instead of Load. Saving configuration remains available in Calibrate.
 - During printing, viewing and rotation remain available while probing and profile changes are disabled. Probing shows progress in place of the previous surface.
-- If no mesh is loaded, saved profiles remain available to load. If none are saved, probe the bed to create the first mesh.
+- If no mesh is loaded, saved profiles remain available to load. With no saved mesh, a clear empty state offers Probe when idle and explains when probing is unavailable.
 
 | Bed mesh | Delete confirmation |
 | --- | --- |
@@ -155,9 +156,11 @@ returns to the previous page automatically.
 | --- | --- |
 | ![Saved profiles without an active mesh](screenshots/mesh-unloaded.png) | ![No measured or saved mesh](screenshots/mesh-empty.png) |
 
-| Probing in progress | Viewing during printing |
+| No mesh during printing | Viewing during printing |
 | --- | --- |
-| ![Probing in progress](screenshots/meshing.png) | ![Viewing during printing](screenshots/mesh-printing.png) |
+| ![No mesh during printing](screenshots/mesh-empty-printing.png) | ![Viewing during printing](screenshots/mesh-printing.png) |
+
+![Probing in progress](screenshots/meshing.png)
 
 ### Thermals and fans
 

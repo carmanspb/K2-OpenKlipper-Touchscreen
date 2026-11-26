@@ -19,6 +19,14 @@ class MigrationTest(unittest.TestCase):
             migration.migrate(target, ROOT / "runtime/native-screen.cfg.example", Path(directory) / "missing.cfg")
             self.assertEqual(target.read_text(), "[brand]\n# Keep this comment\nmodel: My printer\n[screen]\nrotate: 90\n")
 
+    def test_existing_native_accent_survives_new_config_migration(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            prefs = path / "native-screen-settings.json"
+            prefs.write_text('{"accent": "#d9434a"}')
+            migration.migrate(path / "native-screen.cfg", ROOT / "runtime/native-screen.cfg.example", path / "missing.cfg")
+            self.assertEqual(migration.json.loads(prefs.read_text())["accent"], "#d9434a")
+
     def test_active_usb_storage_selection_survives_migration(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory)
@@ -57,7 +65,7 @@ class MigrationTest(unittest.TestCase):
                 migration.json.loads(
                     target.with_name("native-screen-settings.json").read_text()
                 )["accent"],
-                "#d9434a",
+                "#3d8bfd",
             )
             target.write_text("[brand]\nmodel: Existing native settings\n")
             migration.migrate(target, ROOT / "runtime/native-screen.cfg.example", legacy)

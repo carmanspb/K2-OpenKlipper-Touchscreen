@@ -15,6 +15,16 @@ class StreamUpdates(unittest.TestCase):
     def pixels(self):
         return (self.path / 'screen.ppm').read_bytes()
 
+    def test_live_coordinates_return_to_centered_stationary_state(self):
+        self.render('move')
+        idle = self.pixels()
+        motion = {'current': [100, 150, 10], 'target': [300, 250, 10], 'moving': [True, True, False]}
+        self.render('move', [{'snapshot': self.patch({'motion': motion})}])
+        self.assertNotEqual(self.pixels(), idle)
+        self.render('move', [{'snapshot': self.patch({'motion': motion})},
+                             {'snapshot': self.patch({'motion': {}})}])
+        self.assertEqual(self.pixels(), idle)
+
     def test_partial_heater_update_matches_complete_state(self):
         changed = copy.deepcopy(self.data)
         changed['heaters'][0].update(current=187, target=210)

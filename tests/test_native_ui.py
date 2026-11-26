@@ -318,6 +318,17 @@ class NativeUI(unittest.TestCase):
   self.assertEqual(commands,[])
   self.assertTrue(all(not i['enabled'] for i in items if i['action'].startswith('mesh:')))
 
+ def test_empty_mesh_has_one_probe_action_or_idle_instruction(self):
+  import sys
+  sys.path.insert(0,str(ROOT/'developer-tools'))
+  import demo_snapshot
+  for case,probe in [('mesh-empty',True),('mesh-empty-printing',False),('mesh-empty-busy',False)]:
+   with self.subTest(case=case):
+    items,commands=self.render('mesh',data=demo_snapshot.preview_case(case))
+    self.assertEqual(any(i['action']=='calibrate:mesh' for i in items),probe)
+    self.assertFalse(any(i['action']=='mesh:save' for i in items))
+    self.assertEqual(commands,[])
+
  def test_mesh_saved_profiles_remain_accessible_without_active_mesh(self):
   import sys
   sys.path.insert(0,str(ROOT/'developer-tools'))

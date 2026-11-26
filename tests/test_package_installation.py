@@ -85,6 +85,13 @@ class PackageChecks(unittest.TestCase):
         (self.source / "README.md").write_text("Documentation only")
         package_check.validate(self.source, self.package)
 
+    def test_standalone_source_has_the_same_canonical_fingerprint(self):
+        standalone = self.project / "standalone"
+        import shutil
+        shutil.copytree(self.source, standalone)
+        self.assertEqual(package_check.source_inputs(standalone, self.project), self.manifest["source_inputs"])
+        package_check.validate(standalone, standalone / "precompiled/armv7", self.project)
+
     def test_source_change_requires_package_update(self):
         (self.source / "src/main.c").write_text("changed runtime")
         with self.assertRaisesRegex(ValueError, "rebuilding"):
