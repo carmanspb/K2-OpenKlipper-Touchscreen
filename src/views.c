@@ -423,15 +423,15 @@ void views_refresh(void) {
             moving = moving && homed;
             snprintf(value, sizeof(value), "%.2f", cJSON_IsNumber(p) ? p->valuedouble : 0);
             label_update(app.positions[i], homed ? value : "—");
-            lv_obj_align(app.positions[i], LV_ALIGN_CENTER, 2, moving ? -12 : 0);
+            lv_obj_align(app.positions[i], LV_ALIGN_CENTER, 2, 0);
             if (moving) {
                 snprintf(value, sizeof(value), "%.2f", target->valuedouble);
                 label_update(app.position_targets[i], value);
                 lv_point_t size;
                 lv_txt_get_size(&size, value, &font_ui_17, 0, 0, 146, LV_TEXT_FLAG_NONE);
                 int x = 113 - (size.x + 22) / 2;
-                lv_obj_set_pos(app.position_arrows[i], x, 44 + (size.y - 16) / 2);
-                lv_obj_set_pos(app.position_targets[i], x + 22, 44);
+                lv_obj_set_pos(app.position_arrows[i], x, 51 + (size.y - 16) / 2);
+                lv_obj_set_pos(app.position_targets[i], x + 22, 51);
                 lv_obj_set_width(app.position_targets[i], size.x);
                 lv_obj_clear_flag(app.position_arrows[i], LV_OBJ_FLAG_HIDDEN);
                 lv_obj_clear_flag(app.position_targets[i], LV_OBJ_FLAG_HIDDEN);
