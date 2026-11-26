@@ -100,6 +100,7 @@ LIVE_FIELDS = {
     "output_pin chamber_led": ("value",),
     "stepper_enable": ("steppers",),
 }
+TUNING_FIELDS = ("speed_factor", "extrude_factor", "homing_origin")
 NETWORK_PAGES = frozenset(("network", "ethernet", "wifi", "networks"))
 
 
@@ -108,7 +109,7 @@ PRESENTATION_OBJECTS = {
     "refill": ("hark_cfs_slots",),
     "heaters": ("extruder", "heater_bed", "hark_chamber", "temperature_sensor chamber_temperature"),
     "axes": ("gcode_move",),
-    "availability": ("webhooks", "toolhead", "print_stats", "k2_cfs", "filament_switch_sensor filament_sensor"),
+    "availability": ("webhooks", "toolhead", "gcode_move", "print_stats", "k2_cfs", "filament_switch_sensor filament_sensor"),
     "prefs": ("gcode_macro _LIGHT_IDLE", "idle_timeout", "gcode_macro _RUNOUT_REFILL"),
     "filament_activity": ("k2_cfs", "hark_cfs_slots"),
     "cfs_units": ("k2_cfs", "hark_cfs_slots"),
@@ -135,13 +136,16 @@ class Moonraker:
                 error.close()
             raise RuntimeError(message) from None
 
-    def status_snapshot(self):
+    def status_snapshot(self, objects=None):
+        objects = objects if objects is not None else {
+            name: list(SLOT_FIELDS) if name == "hark_cfs_slots" else None for name in OBJECTS
+        }
         return self.request(
             "/printer/objects/query?"
             + "&".join(
                 urllib.parse.quote(name)
-                + ("=" + ",".join(SLOT_FIELDS) if name == "hark_cfs_slots" else "")
-                for name in OBJECTS
+                + ("=" + ",".join(fields) if fields is not None else "")
+                for name, fields in objects.items()
             )
         )
 
@@ -173,6 +177,8 @@ class WebSocket:
     """
 
     def __init__(self, base):
+        self.wake = None
+        self.on_wake = None
         parsed = urllib.parse.urlsplit(base)
         if parsed.scheme != "http":
             raise ValueError(
@@ -226,6 +232,15 @@ class WebSocket:
         idle_since = time.monotonic()
         while len(self.buffer) < count:
             try:
+                if self.wake is not None:
+                    readable, _, _ = select.select([self.sock, self.wake.reader], [], [], 3)
+                    if self.wake.reader in readable:
+                        self.wake.drain()
+                        self.on_wake()
+                    if self.sock not in readable:
+                        if readable:
+                            continue
+                        raise socket.timeout()
                 chunk = self.sock.recv(65536)
             except socket.timeout:
                 if time.monotonic() - idle_since > 15:
@@ -330,10 +345,12 @@ class Service:
         self.connected = False
         self.stream_connected = False
         self.subscription_refresh = threading.Event()
+        self.subscription_wake = None
         self.cfs_query_lock = threading.Lock()
         self.cfs_initializing = True
         self.cfs_query_at = 0.0
         self.visible_page = ""
+        self.display_subscriptions = {}
         self.view_client = None
         self.status_times = {}
         self.status_epoch = 0
@@ -485,14 +502,12 @@ class Service:
             page = str(request.get("page", ""))[:48]
             with self.lock:
                 entering = page == "filament" and self.visible_page != page
-                changed_motion = (self.visible_page == "move") != (page == "move")
+                previous_subscription = self.display_demand()
                 previous_page = self.visible_page
                 self.visible_page = page
                 if page != previous_page:
                     self.notify_state()
-                if changed_motion:
-                    self.status.pop("motion_report", None)
-                    self.subscription_refresh.set()
+                self.refresh_display_subscription(previous_subscription)
             if page in NETWORK_PAGES:
                 threading.Thread(target=self.refresh_network, daemon=True).start()
             if page == "files":
@@ -735,6 +750,11 @@ class Service:
                         pass  # A newly active interlock wins over a queued target.
 
     def presentation_revision(self, key):
+        if key == "availability":
+            # Print duration and position change often, but do not change the
+            # control policy. Retain only its small, explicit input projection.
+            return (self.local_revision, action_policy.availability_inputs(
+                self.status, self.connected, self.operations.values()))
         objects = () if key.startswith("heater:") else PRESENTATION_OBJECTS.get(key)
         if objects is None:
             return None  # Unregistered sections retain mutation-safe comparisons.
@@ -1650,6 +1670,7 @@ class Service:
         with self.lock:
             if epoch is not None and epoch != self.status_epoch:
                 return False
+            previous_subscription = self.display_demand()
             # A new subscription establishes an authoritative baseline. HTTP
             # fallback also detects a remote reboot by its reset monotonic clock.
             reset_clock = (
@@ -1745,6 +1766,7 @@ class Service:
                         operation["detail"] = stage
             if state_changed:
                 self.changed(objects=changed_objects)
+            self.refresh_display_subscription(previous_subscription)
         if model.active(self.status) or self.status.get("webhooks", {}).get(
             "state"
         ) in ("error", "shutdown"):
@@ -1801,7 +1823,7 @@ class Service:
             self.filelist_changed(message.get("params", [{}])[0])
         elif method == "notify_status_update":
             params = message["params"]
-            self.merge_status(params[0], params[1] if len(params) > 1 else None)
+            self.merge_display_status(params[0], params[1] if len(params) > 1 else None)
             self.set_stream_connected(True)
         elif method == "notify_gcode_response":
             line = message.get("params", [""])[0]
@@ -1809,7 +1831,7 @@ class Service:
                 self.event("Printer error", line[2:].strip(), fault=True)
         elif "result" in message and "status" in message["result"]:
             result = message["result"]
-            self.merge_status(
+            self.merge_display_status(
                 result["status"], result.get("eventtime"), full=True,
                 new_epoch=message.get("id") != 2
             )
@@ -1835,22 +1857,89 @@ class Service:
                 self.notify_state()
 
     def subscription_objects(self):
+        demand = self.display_demand()
+        if demand in self.display_subscriptions:
+            return self.display_subscriptions[demand]
         objects = {
             name: list(SLOT_FIELDS) if name == "hark_cfs_slots" else
                   list(LIVE_FIELDS[name]) if name in LIVE_FIELDS else None
             for name in OBJECTS
         }
-        if self.visible_page == "move":
+        motion, tuning = demand
+        objects["toolhead"] = ["homed_axes"] + (["position"] if motion else [])
+        move = (["position", "gcode_position"] if motion else []) + (list(TUNING_FIELDS) if tuning else [])
+        if move:
+            objects["gcode_move"] = move
+        else:
+            objects.pop("gcode_move", None)
+        objects["print_stats"] = ["state", "filename", "message", "info", "print_duration"]
+        objects["virtual_sdcard"] = ["progress"]
+        if motion:
             objects["motion_report"] = ["live_position"]
+        self.display_subscriptions[demand] = objects
         return objects
+
+    def display_demand(self):
+        return action_policy.display_telemetry(self.visible_page, self.status, self.connected)
+
+    def display_status(self, status):
+        """Ignore late frames for fields no longer displayed, before copying/comparing."""
+        objects = self.subscription_objects()
+        return {name: values if objects[name] is None else
+                {key: value for key, value in values.items() if key in objects[name]}
+                for name, values in status.items() if name in objects and isinstance(values, dict)
+                and (objects[name] is None or any(key in values for key in objects[name]))}
+
+    def merge_display_status(self, status, *args, **kwargs):
+        # Page changes and incoming frames share the lock: a late old-page
+        # sample cannot reintroduce fields that the new page just discarded.
+        with self.lock:
+            return self.merge_status(self.display_status(status), *args, **kwargs)
+
+    def refresh_display_subscription(self, previous):
+        """Drop stale page data; a renewed subscription supplies the fresh baseline."""
+        if self.display_demand() == previous:
+            return
+        current = self.subscription_objects()
+        old = {
+            "toolhead": ["homed_axes"] + (["position"] if previous[0] else []),
+            "gcode_move": (["position", "gcode_position"] if previous[0] else []) + (list(TUNING_FIELDS) if previous[1] else []),
+            "motion_report": ["live_position"] if previous[0] else [],
+        }
+        for name in ("toolhead", "gcode_move", "motion_report"):
+            if name not in self.status:
+                continue
+            fields = current.get(name, ())
+            if fields is None:
+                continue
+            retained = {key: value for key, value in self.status[name].items() if key in fields}
+            # Discard newly requested fields too: an earlier action's HTTP
+            # snapshot is not the new page's authoritative subscription reply.
+            old_fields = old.get(name, ())
+            if old_fields is not None:
+                retained = {key: value for key, value in retained.items() if key in old_fields}
+            if retained:
+                self.status[name] = retained
+            else:
+                self.status.pop(name, None)
+        self.request_subscription_refresh()
+        self.notify_state()
+
+    def request_subscription_refresh(self):
+        self.subscription_refresh.set()
+        if self.subscription_wake is not None:
+            self.subscription_wake.signal()
 
     def stream(self):
         last_warning = 0.0
         while True:
             ws = None
+            wake = None
             try:
                 ws = WebSocket(self.mr.base)
+                wake = WakeChannel()
                 with self.lock:
+                    self.subscription_wake = wake
                     self.files_need_refresh = True
                     self.files_preloaded = False
                     self.files_preload_retry_at = 0
@@ -1864,14 +1953,19 @@ class Service:
                         "params": {"objects": self.subscription_objects()},
                     }
                 )
-                while True:
+                def renew():
                     if self.subscription_refresh.is_set():
-                        self.subscription_refresh.clear()
+                        with self.lock:
+                            self.subscription_refresh.clear()
+                            objects = self.subscription_objects()
                         ws.send({
                             "jsonrpc": "2.0", "id": 2,
                             "method": "printer.objects.subscribe",
-                            "params": {"objects": self.subscription_objects()},
+                            "params": {"objects": objects},
                         })
+                ws.wake, ws.on_wake = wake, renew
+                while True:
+                    renew()
                     self.stream_message(ws.receive())
             except Exception as error:
                 with self.lock:
@@ -1883,6 +1977,10 @@ class Service:
                     last_warning = time.monotonic()
                 time.sleep(2)
             finally:
+                with self.lock:
+                    self.subscription_wake = None
+                    if wake:
+                        wake.close()
                 if ws:
                     ws.close()
 
@@ -2373,7 +2471,7 @@ class Service:
                 new_fields = any(set(values) - known.get(name, set())
                                  for name, values in status.items())
                 if new_fields or (self.cfs_initializing and initialized):
-                    self.subscription_refresh.set()
+                    self.request_subscription_refresh()
                 if initialized:
                     self.cfs_initializing = False
                 self.cfs_query_at = time.monotonic()
@@ -2398,8 +2496,8 @@ class Service:
                             self.status_times.values(), default=float("-inf")
                         )
                     querying_status = True
-                    snapshot = self.mr.status_snapshot()
-                    self.merge_status(
+                    snapshot = self.mr.status_snapshot(objects=self.subscription_objects())
+                    self.merge_display_status(
                         snapshot["status"],
                         snapshot.get("eventtime"),
                         full=True,
@@ -2622,10 +2720,9 @@ class Service:
                 self.listeners.discard(wake)
                 wake.close()
                 if self.view_client is connection:
-                    if self.visible_page == "move":
-                        self.status.pop("motion_report", None)
-                        self.subscription_refresh.set()
+                    previous_subscription = self.display_demand()
                     self.visible_page = ""
+                    self.refresh_display_subscription(previous_subscription)
                     self.view_client = None
                     self.notify_state()
             connection.close()

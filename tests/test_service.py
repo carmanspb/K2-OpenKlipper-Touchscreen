@@ -68,7 +68,7 @@ class ServiceTests(unittest.TestCase):
         self.state = status()
         self.config = settings()
         self.mr.query.side_effect = lambda: copy.deepcopy(self.state)
-        self.mr.status_snapshot.side_effect = lambda: {
+        self.mr.status_snapshot.side_effect = lambda **kwargs: {
             "status": self.mr.query(),
             "eventtime": time.monotonic(),
         }

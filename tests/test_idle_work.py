@@ -274,7 +274,7 @@ class IdleWorkTests(unittest.TestCase):
 
     def test_subscription_excludes_unused_fields_and_keeps_motion_and_cfs(self):
         objects=self.s.subscription_objects()
-        self.assertEqual(set(objects['toolhead']),{'homed_axes','position'})
+        self.assertEqual(set(objects['toolhead']),{'homed_axes'})
         self.assertNotIn('estimated_print_time',objects['toolhead'])
         self.assertIn('can_extrude',objects['extruder'])
         self.assertIsNone(objects['k2_cfs'])

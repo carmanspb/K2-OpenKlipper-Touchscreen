@@ -454,7 +454,7 @@ void views_refresh(void) {
             bool homed = strchr(S("status.toolhead.homed_axes"), "xyz"[i]) != NULL;
             moving = moving && homed;
             snprintf(value, sizeof(value), "%.2f", cJSON_IsNumber(p) ? p->valuedouble : 0);
-            label_update(app.positions[i], homed ? value : "—");
+            label_update(app.positions[i], homed && cJSON_IsNumber(p) ? value : "—");
             lv_obj_align(app.positions[i], LV_ALIGN_CENTER, 2, 0);
             if (moving) {
                 snprintf(value, sizeof(value), "%.2f", target->valuedouble);
@@ -1047,6 +1047,12 @@ static void tune_view(void) {
     if (!app.printing && !app.paused) {
         center_message("No print in progress", "Live adjustments become available during a print.",
                        "Choose a file", "open_files");
+        return;
+    }
+    if (!has("status.gcode_move.speed_factor") || !has("status.gcode_move.extrude_factor") ||
+        !has("status.gcode_move.homing_origin")) {
+        center_message("Loading print adjustments", "Waiting for current printer values.", NULL,
+                       NULL);
         return;
     }
     const char *labels[] = {"Print speed", "Flow ratio"}, *keys[] = {"speed", "flow"},

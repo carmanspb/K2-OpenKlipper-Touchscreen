@@ -527,6 +527,21 @@ The backend validates current settings again before printer actions. Connecting
 the screen never replays saved idle, light or CFS settings; it reads their live
 printer values. Only explicit user changes send preference commands.
 
+Display telemetry follows `action_policy.display_telemetry`: Move requests
+coordinates only when its ready/idle control policy allows movement; Tune
+requests speed, flow and offset only during an active print. Existing jog/home
+operation locks do not suppress their own visible motion. Home retains print
+progress, temperatures, CFS and fault state without subscribing to coordinates.
+Unused print counters and SD file offsets are excluded. Availability caching
+uses the policy's explicit input fields, so elapsed print time cannot rebuild it.
+
+A demand change renews the complete Moonraker subscription. Its response is the
+fresh page baseline; pending coordinates show a dash and movement/tuning controls
+wait for their values. Leaving a page drops its samples, and late old-subscription
+frames are filtered before copying/comparing. HTTP fallback requests the same
+display fields. Command validation continues to query full current printer state.
+See the [Moonraker subscription contract](https://moonraker.readthedocs.io/en/latest/external_api/printer/#subscribe-to-printer-object-status-updates).
+
 Touch state is cancelled on connection transitions and input-event loss. A press
 with no new input events for five seconds is cancelled without activating its
 button. Device removal errors trigger bounded reopen attempts.
