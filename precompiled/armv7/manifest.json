@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "built_from_commit": "a765dad90a67d3311edf950687df2a787f0b796d",
+  "built_from_commit": "f6155cf4c750bc634449e4da33754a7c2b0823a9",
   "source_inputs": {
     "touchscreen/LICENSE": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
     "touchscreen/assets/Liberation-LICENSE": "f32df582a2aab128c07b2f7e36e7b928dc5f6bd82657b905c04f91459f9e5cf9",
@@ -29,8 +29,8 @@
     "touchscreen/backend/action_policy.py": "d115f1b7814c83e17937af2e32a87d33dd1e7b631f06f7960259474db69cfa7d",
     "touchscreen/backend/gcode_metadata.py": "6ee21f68808fcbc36ba8bec8955268e3ab6cfe87137f736ed36f166af4a5f0ff",
     "touchscreen/backend/model.py": "e02ee38cb51feaa76f6ac143fce294e92642b587f64b8e3efac426dddcff0ced",
-    "touchscreen/backend/platform_services.py": "1979687af63c32cce573879dd775c5560de32ac14ea84e16f93bf64118c7c967",
-    "touchscreen/backend/service.py": "7fba4b24f7ecdd660e4328af8036d86b0ca447549452e608d219222b5025c36d",
+    "touchscreen/backend/platform_services.py": "3409978194f5322b93bab49c413d2459e20a89bb66e0bd3eff5ee6496b0b30e7",
+    "touchscreen/backend/service.py": "58975bbaf188eedda50bd3a5e490a53d7251d450a452d7f2c5edd654eb9b73d0",
     "touchscreen/backend/snapshot_codec.py": "30b09e0ddf4b40aa17d4816e24ca33fe530cb31d05ed9fcaa97015aa4fdac847",
     "touchscreen/backend/static_resources.py": "e1c546f0d845de62a6b3f3ac512b2be3f6b99c07d4860287d3080d0e30fccd89",
     "touchscreen/backend/storage.py": "3c94f250523894aedde00e401e53f390b6f72792ace517968b1b7c460b74436f",
@@ -44,8 +44,8 @@
     "touchscreen/developer-tools/package.json": "d4f38d17f563400d5a3316ffd56cf17a11da743d4186b88d7d6206d9669b7496",
     "touchscreen/developer-tools/package_arm.py": "efd5c8ec52921a7c3b85129cc87c69782f4b62a28ce53f5094246d28d374cf0b",
     "touchscreen/installation/install.sh": "c471599048c5fdeb897266b493fc828dfe2b5f01248f37f37eab9e0f07d601c8",
-    "touchscreen/installation/migrate.py": "35dfe6f8069661d0c7b31eec88f26cd081db6f01b363138525489944786e698b",
-    "touchscreen/installation/uninstall.py": "6c7546cdab1a617642803f8112534efa7d42a52d8215f1ab52f5b813ababf9ae",
+    "touchscreen/installation/migrate.py": "cf392574eaade446f32cc0adf612eaa7a96d3177f35ef8e6af3cd82c37abe314",
+    "touchscreen/installation/uninstall.py": "6efa89cacdbb4669cae49798ba45ab64a2818534d21c576152e73f3e5fba0987",
     "touchscreen/installation/uninstall.sh": "2137b9cdf2083617ea69cd9e8e2cc3db7ff72d8eba428c8051aee16f71ed0169",
     "touchscreen/installation/validate_package.py": "cafec705669d060cfa51a12f751db883825b092a313026e4afa6ac4c40cf667b",
     "touchscreen/runtime/launch.py": "7d482ccee3d425fafd56cd53e10cdfd78815602038875d4cc2d9fb09434e53ed",
@@ -63,10 +63,10 @@
     "VERSION": "a12a1be3f3ee06a3159f695083ad52c3f3dc2ae1f071b7aece71cfe4c1f1e133",
     "install.sh": "a18c37fe50db5b2a33c5659cccf2a7e5c5d9029bb4c28d47bbc45979eaea59ee"
   },
-  "source_fingerprint": "991ab784e6ff07841fedb8dcc7d0f001d81b4c72a1a78b4c0a4f2ad5e753697d",
+  "source_fingerprint": "ded9250500f139750e9ec287c46b9563a3d3a8076f87e51c8468e45f271aea55",
   "target": "armv7-linux-gnueabihf",
   "files": {
-    "VERSION": "2197379fdd927da76d2b6c3f646b837674c5e0916d9aee39b227bc571778ae80",
+    "VERSION": "741091a553b73e80b75c8868f0e8178eb608007c313808f49b21a57aa6dc1faf",
     "assets/activity-24.png": "9d0040919c37b7592ea3ca004f464b8ea9280ac9913c8d5e61ffcdf65caa8c22",
     "assets/arrow-big-up-28.png": "ba160bf471039cad4e702630eda547c05c26a465762931fea9dac94ddaef20ba",
     "assets/arrow-down-36.png": "c215f324f01fe17e22a598a5a15505d7581ff4009eb08753d133853eb7e0628c",

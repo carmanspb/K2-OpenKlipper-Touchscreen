@@ -527,6 +527,15 @@ class ServiceTests(unittest.TestCase):
                         self.s.poll()
                 self.assertEqual(self.s.connected, live)
 
+    def test_timezone_auto_uses_live_system_zone_without_rewriting_preference(self):
+        self.s.prefs["timezone"] = "auto"
+        for zone in ("EET", "EST"):
+            self.s.platform["timezone"] = zone
+            self.assertEqual(self.s.current_preferences()["timezone"], zone)
+            self.assertEqual(self.s.prefs["timezone"], "auto")
+        self.s.prefs["timezone"] = "America/Detroit"
+        self.assertEqual(self.s.current_preferences()["timezone"], "America/Detroit")
+
     def test_timezone_setting_updates_uci_and_runtime_zonefile(self):
         zone_root = Path(self.tmp.name) / "zoneinfo"
         zone = zone_root / "America" / "Detroit"
@@ -549,6 +558,26 @@ class ServiceTests(unittest.TestCase):
         link.assert_called_once_with(str(zone), "/tmp/localtime.new")
         replace.assert_called_once_with("/tmp/localtime.new", "/tmp/localtime")
         refresh.assert_called_once_with()
+
+    def test_timezone_setting_without_tzset(self):
+        # The printer's Python has no time.tzset. Applying a zone must still
+        # complete after persisting UCI and replacing the runtime zonefile.
+        zone_root = Path(self.tmp.name) / "zoneinfo"
+        zone_root.mkdir()
+        (zone_root / "EET").write_bytes(b"TZif")
+        with (
+            mock.patch.object(platform_services, "ZONEINFO", str(zone_root)),
+            mock.patch("platform_services.subprocess.call") as command,
+            mock.patch("platform_services.os.symlink") as link,
+            mock.patch("platform_services.os.replace") as replace,
+            mock.patch("platform_services.os.path.lexists", return_value=False),
+            mock.patch.object(platform_services, "time", spec=["time"]),
+        ):
+            platform_services.time.time.return_value = 0
+            platform_services.set_system_zone("EET")
+        self.assertEqual(command.call_count, 2)
+        link.assert_called_once_with(str(zone_root / "EET"), "/tmp/localtime.new")
+        replace.assert_called_once_with("/tmp/localtime.new", "/tmp/localtime")
 
     def test_timezone_presets_read_retained_firmware_mapping(self):
         import storage

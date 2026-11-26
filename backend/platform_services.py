@@ -206,7 +206,10 @@ def set_system_zone(name):
             os.replace(tmp, "/tmp/localtime")
         except OSError as e:
             print("time zone: %s" % e, flush=True)
-    time.tzset()
+    # Creality's Python omits tzset; the zonefile still updates system time.
+    refresh = getattr(time, "tzset", None)
+    if refresh is not None:
+        refresh()
     print("time zone: %s (%.1f s)" % (name, time.time() - t0), flush=True)
 
 
