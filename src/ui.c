@@ -886,6 +886,14 @@ static void home_state(char *buffer, size_t size) {
         if (used < size)
             snprintf(buffer + used, size - used, "|%s:%d", jstr(record, "slot", ""),
                      jbool(record, "loaded", false));
+        /* The external shortcut owns a material label and a colour ring;
+         * unlike CFS dots, those are built together by home_spool(). */
+        if (!B("status.k2_cfs.fitted") && !strcmp(jstr(record, "slot", ""), "E")) {
+            used = strlen(buffer);
+            if (used < size)
+                snprintf(buffer + used, size - used, "|%s:%s", jstr(record, "type", ""),
+                         jstr(record, "color", ""));
+        }
     }
 }
 static void move_state(char *buffer, size_t size) {

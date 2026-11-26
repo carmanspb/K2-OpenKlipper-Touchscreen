@@ -70,6 +70,21 @@ class PrinterSpoolColours(unittest.TestCase):
         updated = self.frame(data, [{'snapshot': patch}])
         self.assertIsNone(ImageChops.difference(expected, updated).getbbox())
 
+    def test_external_spool_colour_and_material_edits_refresh_home(self):
+        data = preview_case('no-cfs')
+        data['slots'] = [{'slot':'E', 'loaded':True, 'type':'PLA', 'color':'00FFFF'}]
+        data['status']['filament_switch_sensor filament_sensor']['filament_detected'] = True
+        for field, value in (('color','FF6A00'), ('type','PETG')):
+            with self.subTest(field=field):
+                changed = copy.deepcopy(data)
+                changed['slots'][0][field] = value
+                expected = self.frame(changed)
+                self.assertIsNotNone(ImageChops.difference(expected, self.frame(data)).getbbox())
+                patch = {'_screen_patch':True, 'session':data['session'],
+                         'set':{'slots':changed['slots']}, 'remove':[]}
+                updated = self.frame(data, [{'snapshot':patch}])
+                self.assertIsNone(ImageChops.difference(expected, updated).getbbox())
+
     def test_active_unit_drives_artwork_and_sidebar_together(self):
         data = preview_case('multi-cfs')
         for slot in data['slots']:

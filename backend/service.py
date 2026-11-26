@@ -1958,6 +1958,7 @@ class Service:
                 "recordings",
                 "timelapse",
                 "printer_image",
+                "printer_spools",
                 "thumbnail",
                 "file_thumbnail",
                 "estimated_time",
