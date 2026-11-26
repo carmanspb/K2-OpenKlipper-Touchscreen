@@ -34,7 +34,7 @@ from pathlib import Path
 import action_policy
 import gcode_metadata
 import model
-from snapshot_codec import SnapshotEncoder
+from snapshot_codec import SnapshotEncoder, same_value
 from static_resources import ResourceFile
 import platform_services as platform
 import storage
@@ -80,6 +80,26 @@ SLOT_FIELDS = (
     "slots", "revision", "tool_map", "tool_map_set", "tool_map_file",
     "tool_map_external", "map_tools", "map_targets",
 )
+
+
+# Only standard fields consumed by the UI/model are subscribed. Dynamic CFS
+# objects retain discovery of fields introduced by their initialization.
+LIVE_FIELDS = {
+    "webhooks": ("state", "state_message"),
+    "toolhead": ("homed_axes", "position"),
+    "gcode_move": ("position", "gcode_position", "speed_factor", "extrude_factor", "homing_origin"),
+    "extruder": ("temperature", "target", "can_extrude"),
+    "heater_bed": ("temperature", "target"),
+    "heater_generic chamber_heater": ("temperature", "target"),
+    "temperature_sensor chamber_temperature": ("temperature",),
+    "fan": ("speed",),
+    "fan_generic auxiliary_fan": ("speed",),
+    "fan_generic exhaust_fan": ("speed",),
+    "heater_fan hotend_fan": ("speed",),
+    "output_pin chamber_led": ("value",),
+    "stepper_enable": ("steppers",),
+}
+NETWORK_PAGES = frozenset(("network", "ethernet", "wifi", "networks"))
 
 
 class Moonraker:
@@ -271,6 +291,8 @@ class Service:
         self.wifi = platform.Wifi()
         self.platform = {}
         self.presentation_cache = {}
+        self.network_at = None
+        self.network_lock = threading.Lock()
         self.static_platform = {}
         self.static_platform_at = float("-inf")
         self.thumbnail_running = False
@@ -405,6 +427,8 @@ class Service:
                 if changed_motion:
                     self.status.pop("motion_report", None)
                     self.subscription_refresh.set()
+            if page in NETWORK_PAGES:
+                threading.Thread(target=self.refresh_network, daemon=True).start()
             if page == "files":
                 self.request_file_thumbnails(*self.file_window)
             if entering:
@@ -647,7 +671,7 @@ class Service:
     def cached_presentation(self, key, inputs, build):
         """Cache derived UI data only; action execution always validates fresh state."""
         cached = self.presentation_cache.get(key)
-        if cached is None or cached[0] != inputs:
+        if cached is None or not same_value(cached[0], inputs):
             cached = (deepcopy(inputs), build())
             self.presentation_cache[key] = cached
         return cached[1]
@@ -661,6 +685,21 @@ class Service:
             "availability", inputs,
             lambda: action_policy.availability(status, self.connected, self.operations.values()),
         )
+
+    def presentation_heaters(self, settings, status):
+        heaters = []
+        for key, label, icon in model.available_heaters(settings, status):
+            limits = self.cached_presentation(
+                "heater:" + key,
+                (settings.get(key if key != "chamber" else "heater_generic chamber_heater"),
+                 settings.get("hark_chamber") if key == "chamber" else None),
+                lambda: model.heater_limits(settings, key),
+            )
+            now = status.get(key, {}) if key != "chamber" else status.get("temperature_sensor chamber_temperature", {})
+            target = status.get(key, {}).get("target", 0) if key != "chamber" else status.get("hark_chamber", {}).get("requested", 0)
+            heaters.append({"key": key, "label": label, "current": now.get("temperature", 0),
+                            "target": target, "limits": vars(limits) if limits else None})
+        return heaters
 
     def snapshot(self):
         with self.lock:
@@ -702,37 +741,21 @@ class Service:
                     presented = dict(status.get(obj, {}))
                     presented[field] = desired
                     status[obj] = presented
-            slots = []
-            for key, rec in model.records(status).items():
-                # Removed spool data remains inside Klipper for the in-flight
-                # tail/refill only, never as the new spool's editable details.
-                visible = rec if rec.get("loaded") else {"loaded": False}
-                slots.append(dict(visible, slot=key, label=model.slot_label(key)))
-            heaters = []
-            for key, label, icon in model.available_heaters(settings, status):
-                limits = self.cached_presentation(
-                    "heater:" + key, (settings.get(key if key != "chamber" else "heater_generic chamber_heater"), settings.get("hark_chamber") if key == "chamber" else None),
-                    lambda: model.heater_limits(settings, key),
-                )
-                now = (
-                    status.get(key, {})
-                    if key != "chamber"
-                    else status.get("temperature_sensor chamber_temperature", {})
-                )
-                target = (
-                    status.get(key, {}).get("target", 0)
-                    if key != "chamber"
-                    else status.get("hark_chamber", {}).get("requested", 0)
-                )
-                heaters.append(
-                    {
-                        "key": key,
-                        "label": label,
-                        "current": now.get("temperature", 0),
-                        "target": target,
-                        "limits": vars(limits) if limits else None,
-                    }
-                )
+            records = model.records(status)
+            slots = self.cached_presentation(
+                "slots", records,
+                lambda: [dict(rec if rec.get("loaded") else {"loaded": False},
+                              slot=key, label=model.slot_label(key))
+                         for key, rec in records.items()],
+            )
+            heater_inputs = (
+                settings.get("extruder"), settings.get("heater_bed"),
+                settings.get("heater_generic chamber_heater"), settings.get("hark_chamber"),
+                [status.get(key) for key in ("extruder", "heater_bed", "hark_chamber", "temperature_sensor chamber_temperature")],
+            )
+            heaters = self.cached_presentation(
+                "heaters", heater_inputs, lambda: self.presentation_heaters(settings, status),
+            )
             name = self.config.get("brand", "model", fallback="") or self.config.get(
                 "brand", "name", fallback="Printer"
             )
@@ -768,22 +791,30 @@ class Service:
                 "materials": self.materials,
                 "resources": self.resources.descriptor,
                 "catalogue": self.catalogue.descriptor,
-                "prefs": self.current_preferences(),
+                "prefs": self.cached_presentation(
+                    "prefs", (self.prefs, self.settings.get("gcode_macro _LIGHT_IDLE"),
+                              self.settings.get("idle_timeout"), self.settings.get("gcode_macro _RUNOUT_REFILL"),
+                              status.get("gcode_macro _LIGHT_IDLE"), status.get("idle_timeout"),
+                              status.get("gcode_macro _RUNOUT_REFILL"),
+                              self.config.get("screen", "sleep_after", fallback="600")), self.current_preferences),
                 "events": self.events,
                 "notices": self.notices,
                 "operation": dict(self.operation) if self.operation else None,
                 "operations": [dict(op) for op in self.operations.values()],
-                "filament_activity": model.filament_activity(
-                    status, self.operations.values()
-                ),
+                "filament_activity": self.cached_presentation(
+                    "filament_activity", (status.get("k2_cfs", {}).get("filament_activity"),
+                                          status.get("k2_cfs", {}).get("active_slot"),
+                                          status.get("hark_cfs_slots"), list(self.operations.values())),
+                    lambda: model.filament_activity(status, self.operations.values())),
                 "results": list(self.results),
                 "availability": self.control_availability(status),
                 "result": self.result,
                 "platform": self.platform,
                 "model": name,
-                "cfs_units": len({slot[:-1] or "1" for slot in model.slots(status)})
-                if model.fitted(status)
-                else 0,
+                "cfs_units": self.cached_presentation(
+                    "cfs_units", (bool(status.get("k2_cfs")), status.get("k2_cfs", {}).get("fitted"),
+                                  status.get("hark_cfs_slots")),
+                    lambda: len({slot[:-1] or "1" for slot in model.slots(status)}) if model.fitted(status) else 0),
                 "error": error,
                 "files": self.files,
                 "files_ready": self.files_ready,
@@ -798,13 +829,11 @@ class Service:
                 "file_read": dict(self.file_read),
                 "metadata": self.metadata.get(self.selected_file, {}),
                 "source": self.files_source,
-                "wifi": dict(
-                    self.platform.get("wifi", {}),
-                    networks=self.wifi.networks,
-                    busy=self.wifi.busy,
-                    message=self.wifi.message,
-                ),
-                "refill": model.refill_groups(status),
+                "wifi": self.cached_presentation(
+                    "wifi", (self.platform.get("wifi", {}), self.wifi.networks, self.wifi.busy, self.wifi.message),
+                    lambda: dict(self.platform.get("wifi", {}), networks=self.wifi.networks,
+                                 busy=self.wifi.busy, message=self.wifi.message)),
+                "refill": self.cached_presentation("refill", records, lambda: model.refill_groups(status)),
                 "zones": storage.timezones(),
                 "timezone_presets": storage.timezone_presets(),
                 "cutter_method": self.config.get(
@@ -1715,7 +1744,8 @@ class Service:
 
     def subscription_objects(self):
         objects = {
-            name: list(SLOT_FIELDS) if name == "hark_cfs_slots" else None
+            name: list(SLOT_FIELDS) if name == "hark_cfs_slots" else
+                  list(LIVE_FIELDS[name]) if name in LIVE_FIELDS else None
             for name in OBJECTS
         }
         if self.visible_page == "move":
@@ -2069,8 +2099,27 @@ class Service:
             self.platform[key] = ready
         return ready
 
+    def refresh_network(self):
+        if not self.network_lock.acquire(blocking=False):
+            return
+        try:
+            identity = storage.system_identity()
+            wifi = self.wifi.status()
+            with self.lock:
+                self.platform.update(identity)
+                self.platform["wifi"] = wifi
+                self.network_at = time.monotonic()
+        finally:
+            self.network_lock.release()
+
+    def network_refresh_due(self, now):
+        return self.network_at is None or (
+            self.visible_page in NETWORK_PAGES and now - self.network_at >= 5
+        )
+
     def refresh_platform(self):
-        info = storage.system_identity()
+        # Network reads run once at startup, on entry, and while visible.
+        info = {key: self.platform[key] for key in ("interfaces", "wifi", "serial") if key in self.platform}
         disk = platform.usb_disk()
         previous_disk = self.platform.get("usb") or {}
         if (
@@ -2082,7 +2131,6 @@ class Service:
             disk["ejected"] = True
         info["usb"] = disk
         info["free"] = storage.free_space(str(self.config_path.parent))
-        info["wifi"] = self.wifi.status()
         now = time.monotonic()
         if now - self.static_platform_at >= 300:
             self.refresh_static_platform()
@@ -2118,6 +2166,9 @@ class Service:
 
     def merge_platform(self, info, disk):
         for key in (
+            "interfaces",
+            "wifi",
+            "serial",
             "recordings",
             "timelapse",
             "printer_image",
@@ -2283,6 +2334,8 @@ class Service:
                 self.update_screen_idle()
                 self.preload_files()
                 self.preload_print_preview(now)
+                if self.network_refresh_due(now):
+                    self.refresh_network()
                 if now - platform_at > 5:
                     self.refresh_platform()
                     platform_at = now
@@ -2402,7 +2455,10 @@ class Service:
                     snapshot_at = time.monotonic()
                     # The paired renderer receives only changed sections after
                     # the initial full state on every connection.
-                    encoded = encoder.encode(value)
+                    encoded = encoder.encode(value, immutable=(
+                        "heaters", "slots", "axes", "availability", "prefs",
+                        "filament_activity", "refill", "wifi",
+                    ))
                 # Suppress identical snapshots. The 200 ms idle wait bounds
                 # routine traffic; incoming commands still wake select immediately.
                 encoded_at = time.monotonic()

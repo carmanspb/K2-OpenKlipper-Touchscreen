@@ -25,7 +25,7 @@ printing/pausing or when the renderer leaves/disconnects. Newly discovered field
 renew the subscription without resetting the printer session. No CFS reads are
 made when the driver reports that none is fitted. Configuration and platform
 refreshes remain separate background tasks. Screen IPC starts with a full snapshot, then sends only changed top-level
-sections and explicit deletions. Unchanged sections stay in renderer memory.
+sections and individual changed printer-status objects, with explicit deletions. Unchanged sections stay in renderer memory.
 Every reconnect starts with another full snapshot; queued updates are consumed
 in order. The renderer and backend are installed together as one versioned unit.
 Errors, operation state and safety availability are transmitted regardless of the visible page.
@@ -43,6 +43,27 @@ keeps unchanged previews. Moonraker file notifications update individual entries
 directory changes, reconnects and manual refreshes reconcile the complete list.
 Events received during a listing request are replayed before publishing it.
 Opening Files reuses the listing while its event stream is healthy.
+
+Network addresses, Wi-Fi connection state and signal strength are read once at
+startup, immediately on entering Network/Ethernet/Wi-Fi pages, and periodically
+only while one of those pages is visible. Connection/scan operations retain their
+own progress reads. Other pages reuse the last network snapshot; USB detection
+and free-space checks continue in the background.
+
+Standard Moonraker subscriptions request only fields consumed by the interface
+and model. Toolhead position remains subscribed for coordinate transforms; live
+motion still subscribes only on Move. Dynamic CFS objects retain their complete
+subscription and discovery behavior. No temperature, operation, fault or touch
+refresh interval is reduced.
+
+Derived slots, refill groups, heater presentation, preferences, Wi-Fi presentation
+and availability reuse cached sections until their input values change. The
+encoder also reuses those immutable sections. After the initial full IPC baseline,
+`status_set` replaces individual status objects and `status_remove` explicitly
+removes them. Unchanged status objects stay in renderer memory; omitted fields
+inside a replaced object do not survive. The encoder does not construct a full
+status JSON string for each telemetry patch. Both components must be installed
+from the same runtime package.
 
 Hardware serial and successfully read firmware version are cached for the service
 lifetime. Timezone and package version are checked every five minutes, and a

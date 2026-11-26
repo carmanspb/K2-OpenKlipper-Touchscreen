@@ -221,6 +221,72 @@ class IdleWorkTests(unittest.TestCase):
         else:
             self.fail('Renderer did not request the visible file window')
 
+    def test_network_is_read_at_startup_and_only_refreshed_on_network_pages(self):
+        self.assertTrue(self.s.network_refresh_due(100))
+        with mock.patch('storage.system_identity',return_value={'interfaces':{'ethernet':{'address':'10.0.0.2'}}}) as identity, \
+             mock.patch.object(self.s.wifi,'status',return_value={'ssid':'test'}) as wifi, \
+             mock.patch('service.time.monotonic',return_value=100):
+            self.s.refresh_network()
+            identity.assert_called_once()
+            wifi.assert_called_once()
+        self.s.visible_page = 'home'
+        self.assertFalse(self.s.network_refresh_due(1000))
+        self.s.visible_page = 'ethernet'
+        self.assertFalse(self.s.network_refresh_due(104))
+        self.assertTrue(self.s.network_refresh_due(105))
+        with mock.patch.object(self.s,'refresh_network') as refresh, \
+             mock.patch('service.threading.Thread') as thread:
+            self.s.submit({'action':'view','page':'wifi'})
+            self.assertEqual(thread.call_args.kwargs['target'], refresh)
+        self.s.visible_page = ''
+        self.assertFalse(self.s.network_refresh_due(1000))
+
+    def test_platform_refresh_preserves_cached_network_without_reading_it(self):
+        self.s.platform = {'interfaces':{'ethernet':{'address':'10.0.0.2'}},'wifi':{'ssid':'test'},'serial':'device'}
+        with mock.patch('storage.system_identity') as identity, \
+             mock.patch.object(self.s.wifi,'status') as wifi, \
+             mock.patch('service.platform.usb_disk',return_value=None), \
+             mock.patch.object(self.s,'refresh_static_platform'), \
+             mock.patch.object(self.s,'prepare_artwork'),mock.patch.object(self.s,'prepare_icons'):
+            self.s.refresh_platform()
+        identity.assert_not_called()
+        wifi.assert_not_called()
+        self.assertEqual(self.s.platform['wifi']['ssid'],'test')
+        self.assertEqual(self.s.platform['interfaces']['ethernet']['address'],'10.0.0.2')
+
+    def test_presentation_sections_reused_and_relevant_changes_invalidate(self):
+        first = self.s.snapshot()
+        second = self.s.snapshot()
+        for key in ('slots','heaters','refill','prefs','wifi','availability'):
+            self.assertIs(first[key],second[key])
+        self.s.status['extruder'] = {'temperature':201,'target':210}
+        third = self.s.snapshot()
+        self.assertIsNot(third['heaters'],first['heaters'])
+        self.assertIs(third['slots'],first['slots'])
+        self.s.status['hark_cfs_slots']['slots']['A']['color']='ABCDEF'
+        fourth = self.s.snapshot()
+        self.assertEqual(fourth['slots'][0]['color'],'ABCDEF')
+        self.assertIsNot(fourth['slots'],first['slots'])
+        self.s.prefs['brightness']=42
+        self.assertEqual(self.s.snapshot()['prefs']['brightness'],42)
+        self.s.wifi.busy=True
+        self.assertTrue(self.s.snapshot()['wifi']['busy'])
+
+    def test_subscription_excludes_unused_fields_and_keeps_motion_and_cfs(self):
+        objects=self.s.subscription_objects()
+        self.assertEqual(set(objects['toolhead']),{'homed_axes','position'})
+        self.assertNotIn('estimated_print_time',objects['toolhead'])
+        self.assertIn('can_extrude',objects['extruder'])
+        self.assertIsNone(objects['k2_cfs'])
+        self.assertNotIn('motion_report',objects)
+        self.s.visible_page='move'
+        self.assertEqual(self.s.subscription_objects()['motion_report'],['live_position'])
+
+    def test_cache_does_not_conflate_booleans_and_numbers(self):
+        self.s.snapshot()
+        self.s.status['hark_cfs_slots']['slots']['A']['loaded']=1
+        self.assertIs(type(self.s.snapshot()['slots'][0]['loaded']),int)
+
 
 if __name__ == '__main__':
     unittest.main()

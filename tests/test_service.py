@@ -846,7 +846,7 @@ class ServiceTests(unittest.TestCase):
                 update = json.loads(reader.readline())
                 self.assertTrue(update["_screen_patch"])
                 self.assertNotIn("settings", update["set"])
-                self.assertIn("status", update["set"])
+                self.assertIn("extruder", update["status_set"])
             finally:
                 reader.close()
                 client.close()
