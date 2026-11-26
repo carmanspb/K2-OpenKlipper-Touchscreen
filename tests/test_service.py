@@ -509,6 +509,7 @@ class ServiceTests(unittest.TestCase):
         self.s.update_screen_idle = mock.Mock()
         self.s.preload_files = mock.Mock()
         self.s.refresh_platform = mock.Mock(side_effect=OSError("USB query failed"))
+        self.s.refresh_network = mock.Mock()
         with mock.patch("service.time.sleep", side_effect=StopIteration):
             with self.assertRaises(StopIteration):
                 self.s.poll()

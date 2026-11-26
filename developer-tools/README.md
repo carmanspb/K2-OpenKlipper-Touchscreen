@@ -77,7 +77,11 @@ lock when changing several related fields. File-list writers must also advance
 callback; duplicate wakeups coalesce without accumulating a message queue.
 
 Derived slots, refill groups, heater presentation, preferences, Wi-Fi presentation
-and availability reuse cached sections until their input values change. The
+and availability reuse cached sections until their input values change. Live
+publication tracks their printer-object dependencies by revision, avoiding input
+comparisons and copies when unrelated telemetry arrives. Local/configuration
+changes invalidate these dependencies conservatively; direct diagnostic snapshots
+retain mutation-safe value comparisons. The
 encoder also reuses those immutable sections. After the initial full IPC baseline,
 `status_set` replaces individual status objects and `status_remove` explicitly
 removes them. Unchanged status objects stay in renderer memory; omitted fields

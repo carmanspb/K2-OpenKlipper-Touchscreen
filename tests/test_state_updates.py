@@ -191,3 +191,33 @@ class StateUpdates(unittest.TestCase):
             self.assertEqual(patch['set']['heaters'][0]['target'],0)
         self.quiet(first)
         self.quiet(second)
+
+    def test_live_sections_use_dependency_revisions_without_copying_static_inputs(self):
+        self.s.last_state='standby'
+        self.s.status['extruder']={'temperature':20,'target':0}
+        first=self.s.screen_snapshot()
+        with mock.patch('service.deepcopy',wraps=copy.deepcopy) as copies:
+            self.s.merge_status({'extruder':{'temperature':21}},101)
+            second=self.s.screen_snapshot()
+            self.assertEqual(copies.call_count,0)
+        self.assertEqual(second['heaters'][0]['current'],21)
+        for key in ('slots','axes','availability','prefs','refill','wifi'):
+            self.assertIs(first[key],second[key])
+
+    def test_local_settings_and_preferences_invalidate_dependency_caches(self):
+        self.s.screen_snapshot()
+        with self.s.lock:
+            self.s.settings['extruder']['max_temp']=250
+            self.s.prefs['brightness']=42
+            self.s.notify_state()
+        value=self.s.screen_snapshot()
+        self.assertEqual(value['heaters'][0]['limits']['maximum'],250)
+        self.assertEqual(value['prefs']['brightness'],42)
+
+    def test_new_epoch_removes_cached_cfs_sections(self):
+        self.assertTrue(self.s.screen_snapshot()['slots'])
+        state={'webhooks':{'state':'ready'},'print_stats':{'state':'standby'}}
+        self.s.merge_status(state,101,full=True,new_epoch=True)
+        value=self.s.screen_snapshot()
+        self.assertEqual(value['slots'],[])
+        self.assertEqual(value['cfs_units'],0)

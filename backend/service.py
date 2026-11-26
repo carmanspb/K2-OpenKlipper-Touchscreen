@@ -103,6 +103,19 @@ LIVE_FIELDS = {
 NETWORK_PAGES = frozenset(("network", "ethernet", "wifi", "networks"))
 
 
+PRESENTATION_OBJECTS = {
+    "slots": ("hark_cfs_slots",),
+    "refill": ("hark_cfs_slots",),
+    "heaters": ("extruder", "heater_bed", "hark_chamber", "temperature_sensor chamber_temperature"),
+    "axes": ("gcode_move",),
+    "availability": ("webhooks", "toolhead", "print_stats", "k2_cfs", "filament_switch_sensor filament_sensor"),
+    "prefs": ("gcode_macro _LIGHT_IDLE", "idle_timeout", "gcode_macro _RUNOUT_REFILL"),
+    "filament_activity": ("k2_cfs", "hark_cfs_slots"),
+    "cfs_units": ("k2_cfs", "hark_cfs_slots"),
+    "wifi": (),
+}
+
+
 class Moonraker:
     def __init__(self, base):
         self.base = base.rstrip("/")
@@ -273,6 +286,9 @@ class Service:
             self.prefs = {}
         self.lock = threading.RLock()
         self.state_revision = 0
+        self.local_revision = 0
+        self.object_revisions = {}
+        self.use_input_revisions = False
         self.listeners = set()
         self.presentation = None
         self.presentation_deadline = None
@@ -351,19 +367,24 @@ class Service:
         self.catalogue_retry = (None, 0.0)
         self.artwork_key = None
 
-    def notify_state(self):
+    def notify_state(self, objects=None):
         """Every asynchronous UI-state writer invalidates and wakes publication."""
         with self.lock:
             self.state_revision += 1
+            if objects is None:
+                self.local_revision += 1
+            else:
+                for name in objects:
+                    self.object_revisions[name] = self.object_revisions.get(name, 0) + 1
             self.presentation = None
             self.presentation_deadline = None
             for listener in self.listeners:
                 listener.signal()
 
-    def changed(self):
+    def changed(self, objects=None):
         with self.lock:
             self.sequence += 1
-            self.notify_state()
+            self.notify_state(objects=objects)
 
     def next_snapshot_deadline(self):
         return min((entry[1] for entry in self.requested_values.values()), default=None)
@@ -375,7 +396,11 @@ class Service:
                 self.notify_state()
                 self.presentation_deadline = None
             if self.presentation is None:
-                value = self.snapshot()
+                self.use_input_revisions = True
+                try:
+                    value = self.snapshot()
+                finally:
+                    self.use_input_revisions = False
                 for key in ("settings", "materials", "zones", "timezone_presets", "tune_limits"):
                     value.pop(key, None)
                 self.presentation = value
@@ -709,11 +734,23 @@ class Service:
                     except (ValueError, action_policy.ActionBusy):
                         pass  # A newly active interlock wins over a queued target.
 
+    def presentation_revision(self, key):
+        objects = () if key.startswith("heater:") else PRESENTATION_OBJECTS.get(key)
+        if objects is None:
+            return None  # Unregistered sections retain mutation-safe comparisons.
+        return (self.local_revision, self.connected,
+                tuple(self.object_revisions.get(name, 0) for name in objects))
+
     def cached_presentation(self, key, inputs, build):
-        """Cache derived UI data only; action execution always validates fresh state."""
+        """Live publication uses owner revisions; direct snapshots remain safe."""
         cached = self.presentation_cache.get(key)
-        if cached is None or not same_value(cached[0], inputs):
-            cached = (deepcopy(inputs), build())
+        revision = self.presentation_revision(key) if self.use_input_revisions else None
+        if revision is not None:
+            if cached is None or cached[2] != revision:
+                cached = (None, build(), revision)
+                self.presentation_cache[key] = cached
+        elif cached is None or cached[2] is not None or not same_value(cached[0], inputs):
+            cached = (deepcopy(inputs), build(), None)
             self.presentation_cache[key] = cached
         return cached[1]
 
@@ -1627,12 +1664,15 @@ class Service:
                 and eventtime is not None
                 and eventtime < max(self.status_times.values(), default=float("-inf"))
             )
+            changed_objects = set()
             if new_epoch or reset_clock:
+                changed_objects.update(self.status)
                 self.status_epoch += 1
                 self.status_times.clear()
                 self.status.clear()
                 if remote_reboot or reset_clock:
                     self.settings = {}
+                    self.notify_state()
                 self.settings_refresh_needed = True
                 self.requested_values.clear()
                 self.pending_temperatures.clear()
@@ -1656,6 +1696,7 @@ class Service:
                     values = updated
                 if name not in self.status or not same_value(self.status[name], values):
                     self.status[name] = values
+                    changed_objects.add(name)
                     state_changed = True
             self.connected = True
             self.last_status_at = time.monotonic()
@@ -1703,7 +1744,7 @@ class Service:
                     }:
                         operation["detail"] = stage
             if state_changed:
-                self.changed()
+                self.changed(objects=changed_objects)
         if model.active(self.status) or self.status.get("webhooks", {}).get(
             "state"
         ) in ("error", "shutdown"):
