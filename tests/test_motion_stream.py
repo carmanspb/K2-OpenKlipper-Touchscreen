@@ -2,6 +2,8 @@
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'backend'))
 import model
 import test_service
@@ -41,6 +43,39 @@ class MotionSubscriptionTests(unittest.TestCase):
         self.assertNotIn('motion_report', self.s.subscription_objects())
         self.assertNotIn('motion_report', self.s.status)
         self.assertEqual(self.s.snapshot()['motion'], {})
+
+    def test_disconnected_stream_does_not_freeze_motion_during_http_fallback(self):
+        self.s.visible_page = 'move'
+        self.s.stream_connected = True
+        self.s.status.update({
+            'toolhead': {'homed_axes': 'xyz', 'position': [300, 200, 10]},
+            'gcode_move': {'gcode_position': [300, 200, 10]},
+            'motion_report': {'live_position': [100, 200, 10]},
+        })
+        self.assertEqual(self.s.snapshot()['motion']['current'], [100, 200, 10])
+        self.assertTrue(self.s.snapshot()['motion']['moving'][0])
+        self.s.stream_connected = False
+        # HTTP snapshots intentionally omit motion_report and preserve other objects.
+        self.s.merge_status({'gcode_move': {'gcode_position': [300, 200, 10]}}, full=True)
+        motion = self.s.snapshot()['motion']
+        self.assertEqual(motion['current'], [300, 200, 10])
+        self.assertEqual(motion['moving'], [False]*3)
+        self.s.stream_message({'id': 1, 'result': {'status': {
+            'toolhead': {'homed_axes': 'xyz', 'position': [300, 200, 10]},
+            'gcode_move': {'gcode_position': [300, 200, 10]},
+            'motion_report': {'live_position': [250, 200, 10]},
+        }, 'eventtime': 100}})
+        self.assertEqual(self.s.snapshot()['motion']['current'], [250, 200, 10])
+
+    def test_stream_failure_discards_cached_motion_sample(self):
+        self.s.status['motion_report'] = {'live_position': [1, 2, 3]}
+        self.s.stream_connected = True
+        with mock.patch('service.WebSocket') as websocket, mock.patch('service.time.sleep', side_effect=RuntimeError('stop retry')):
+            websocket.return_value.receive.side_effect = OSError('connection lost')
+            with self.assertRaisesRegex(RuntimeError, 'stop retry'):
+                self.s.stream()
+        self.assertFalse(self.s.stream_connected)
+        self.assertNotIn('motion_report', self.s.status)
 
     def test_native_accent_is_preserved_and_new_default_is_blue(self):
         self.assertEqual(self.s.current_preferences()['accent'], '#3d8bfd')

@@ -723,7 +723,8 @@ class Service:
                 "slots": slots,
                 "heaters": heaters,
                 "axes": axis,
-                "motion": model.motion_state(status) if self.visible_page == "move" else {},
+                "motion": model.motion_state(status, use_live=self.stream_connected)
+                if self.visible_page == "move" else {},
                 "materials": self.materials,
                 "resources": self.resources.descriptor,
                 "catalogue": self.catalogue.descriptor,
@@ -1657,7 +1658,9 @@ class Service:
                         })
                     self.stream_message(ws.receive())
             except Exception as error:
-                self.stream_connected = False
+                with self.lock:
+                    self.stream_connected = False
+                    self.status.pop("motion_report", None)
                 if time.monotonic() - last_warning >= 30:
                     print("screen status stream: %s" % error, flush=True)
                     last_warning = time.monotonic()

@@ -240,7 +240,7 @@ def filament_activity(status, operations=()):
     return None
 
 
-def motion_state(status):
+def motion_state(status, use_live=True):
     """Map interpolated machine coordinates into the displayed G-code frame.
 
     Klipper's motion report estimates requested motion; it is not encoder
@@ -259,7 +259,7 @@ def motion_state(status):
     if target is None:
         return {}
     machine = vector(status.get("toolhead", {}).get("position")) or vector(move.get("position"))
-    live = vector(status.get("motion_report", {}).get("live_position"))
+    live = vector(status.get("motion_report", {}).get("live_position")) if use_live else None
     current = [target[i] + live[i] - machine[i] for i in range(3)] if live and machine else target[:]
     homed = status.get("toolhead", {}).get("homed_axes", "")
     return {
