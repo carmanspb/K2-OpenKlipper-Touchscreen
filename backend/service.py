@@ -28,6 +28,7 @@ import urllib.parse
 import urllib.request
 import uuid
 from collections import deque
+from copy import deepcopy
 from pathlib import Path
 
 import action_policy
@@ -269,6 +270,14 @@ class Service:
         self.history_id = 0
         self.wifi = platform.Wifi()
         self.platform = {}
+        self.presentation_cache = {}
+        self.static_platform = {}
+        self.static_platform_at = float("-inf")
+        self.thumbnail_running = False
+        self.thumbnail_pending = None
+        self.file_window = (0, 7)
+        self.file_events = []
+        self.files_need_refresh = False
         self.sequence = 0
         self.started = time.time()
         self.session = uuid.uuid4().hex
@@ -311,6 +320,8 @@ class Service:
         self.catalogue_revision = None
         self.catalogue_lock = threading.Lock()
         self.print_file = ""
+        self.preview_retry = (None, 0.0, 0)
+        self.catalogue_retry = (None, 0.0)
         self.artwork_key = None
 
     def event(self, title, detail="", fault=False, timed=False, filament_slot=None):
@@ -394,8 +405,16 @@ class Service:
                 if changed_motion:
                     self.status.pop("motion_report", None)
                     self.subscription_refresh.set()
+            if page == "files":
+                self.request_file_thumbnails(*self.file_window)
             if entering:
                 threading.Thread(target=self.refresh_cfs, daemon=True).start()
+            return
+        if action == "file_window":
+            first, count = request.get("first", 0), request.get("count", 7)
+            if type(first) is not int or type(count) is not int or first < 0 or not 1 <= count <= 16:
+                raise ValueError("Invalid file window")
+            self.request_file_thumbnails(first, count)
             return
         if action == "files":
             # Browsing storage is a background read, not a printer operation.
@@ -404,9 +423,10 @@ class Service:
                 if self.files_refreshing:
                     return
                 if (
-                    request.get("automatic") is True
+                    not self.files_need_refresh
+                    and request.get("automatic") is True
                     and self.files_refreshed_at is not None
-                    and time.monotonic() - self.files_refreshed_at < 15
+                    and (self.stream_connected or time.monotonic() - self.files_refreshed_at < 15)
                 ):
                     return
                 self.files_refreshing = True
@@ -528,7 +548,6 @@ class Service:
     def preload_files(self):
         if (
             self.connected
-            and self.status.get("webhooks", {}).get("state") == "ready"
             and not self.files_preloaded
             and not self.files_refreshing
             and time.monotonic() >= self.files_preload_retry_at
@@ -540,7 +559,8 @@ class Service:
         try:
             self.execute({"action": "files", "source": "gcodes"})
             with self.lock:
-                self.files_ready = self.files_preloaded = True
+                self.files_ready = True
+                self.files_preloaded = not self.files_need_refresh
                 self.files_refreshed_at = time.monotonic()
         except Exception as error:
             with self.lock:
@@ -624,6 +644,24 @@ class Service:
                     except (ValueError, action_policy.ActionBusy):
                         pass  # A newly active interlock wins over a queued target.
 
+    def cached_presentation(self, key, inputs, build):
+        """Cache derived UI data only; action execution always validates fresh state."""
+        cached = self.presentation_cache.get(key)
+        if cached is None or cached[0] != inputs:
+            cached = (deepcopy(inputs), build())
+            self.presentation_cache[key] = cached
+        return cached[1]
+
+    def control_availability(self, status):
+        # Keep these dependencies beside the policy they describe.
+        inputs = action_policy.availability_inputs(
+            status, self.connected, self.operations.values()
+        )
+        return self.cached_presentation(
+            "availability", inputs,
+            lambda: action_policy.availability(status, self.connected, self.operations.values()),
+        )
+
     def snapshot(self):
         with self.lock:
             # Unchanged objects retain identity; optimistic values below get
@@ -672,7 +710,10 @@ class Service:
                 slots.append(dict(visible, slot=key, label=model.slot_label(key)))
             heaters = []
             for key, label, icon in model.available_heaters(settings, status):
-                limits = model.heater_limits(settings, key)
+                limits = self.cached_presentation(
+                    "heater:" + key, (settings.get(key if key != "chamber" else "heater_generic chamber_heater"), settings.get("hark_chamber") if key == "chamber" else None),
+                    lambda: model.heater_limits(settings, key),
+                )
                 now = (
                     status.get(key, {})
                     if key != "chamber"
@@ -695,14 +736,13 @@ class Service:
             name = self.config.get("brand", "model", fallback="") or self.config.get(
                 "brand", "name", fallback="Printer"
             )
-            axis = {
-                a: (
-                    vars(limit)
-                    if (limit := model.axis_limits(settings, status, a))
-                    else None
-                )
-                for a in "xyz"
-            }
+            axis = self.cached_presentation(
+                "axes", ([settings.get("stepper_" + a) for a in "xyz"],
+                         status.get("gcode_move", {}).get("position"),
+                         status.get("gcode_move", {}).get("gcode_position")),
+                lambda: {a: vars(limit) if (limit := model.axis_limits(settings, status, a)) else None
+                         for a in "xyz"},
+            )
             error = "" if self.connected else "Waiting for Moonraker"
             if self.connected and status.get("webhooks", {}).get("state") in (
                 "error",
@@ -737,9 +777,7 @@ class Service:
                     status, self.operations.values()
                 ),
                 "results": list(self.results),
-                "availability": action_policy.availability(
-                    status, self.connected, self.operations.values()
-                ),
+                "availability": self.control_availability(status),
                 "result": self.result,
                 "platform": self.platform,
                 "model": name,
@@ -1076,17 +1114,27 @@ class Service:
             # Files always browses Moonraker's configured G-code storage.
             # Attaching/removing USB cannot silently switch this listing.
             with self.file_lock:
+                with self.lock:
+                    self.file_events = []
                 files = sorted(self.mr.files(), key=lambda f: -f.get("modified", 0))
                 with self.lock:
                     self.files_source = "gcodes"
                     self.files = files
+                    self.files_need_refresh = False
+                    for change in self.file_events:
+                        self.apply_file_change(change)
+                    self.file_events = []
+                    files = self.files
                     self.file_generation += 1
-                    generation = self.file_generation
-                threading.Thread(
-                    target=self.file_thumbnails,
-                    args=(list(files), generation),
-                    daemon=True,
-                ).start()
+                    live = {f["path"]: (f.get("modified"), f.get("size")) for f in files}
+                    previews = self.platform.get("file_thumbnails", {})
+                    for path in list(self.file_signatures):
+                        if live.get(path) != self.file_signatures[path]:
+                            self.file_signatures.pop(path, None)
+                            previews.pop(path, None)
+                    self.sequence += 1
+                if self.visible_page == "files":
+                    self.request_file_thumbnails(*self.file_window)
         elif action in ("delete_file", "delete_recording"):
             if r.get("confirm") is not True:
                 raise ValueError("Deletion requires confirmation")
@@ -1212,6 +1260,7 @@ class Service:
             if name not in storage.timezones():
                 raise ValueError("Unknown time zone")
             platform.set_system_zone(name)
+            self.static_platform_at = float("-inf")
             self.prefs["timezone"] = name
             self.save_preferences()
         elif action in ("usb_format", "usb_eject"):
@@ -1587,13 +1636,55 @@ class Service:
             self.wake_screen()
         return True
 
+    def filelist_changed(self, change):
+        item = change.get("item", {})
+        source = change.get("source_item", {})
+        if item.get("root") != "gcodes" and source.get("root") != "gcodes":
+            return
+        with self.lock:
+            if self.files_refreshing:
+                self.file_events.append(deepcopy(change))
+            self.apply_file_change(change)
+        if self.visible_page == "files":
+            self.request_file_thumbnails(*self.file_window)
+
+    def apply_file_change(self, change):
+        action, item = change.get("action"), change.get("item", {})
+        source = change.get("source_item", {})
+        if action not in ("create_file", "modify_file", "delete_file", "move_file"):
+            self.files_need_refresh = True
+            self.files_preloaded = False
+            self.files_preload_retry_at = 0
+            return
+        removed = set()
+        if action == "move_file" and source.get("root") == "gcodes":
+            removed.add(source.get("path"))
+        if item.get("root") == "gcodes":
+            removed.add(item.get("path"))
+        self.files = [f for f in self.files if f["path"] not in removed]
+        for path in removed:
+            self.file_signatures.pop(path, None)
+            self.platform.get("file_thumbnails", {}).pop(path, None)
+            self.metadata.pop(path, None)
+        if item.get("root") == "gcodes" and action != "delete_file":
+            if not all(key in item for key in ("path", "modified", "size")):
+                self.files_need_refresh = True
+                self.files_preloaded = False
+            elif str(item["path"]).lower().endswith((".gcode", ".gco", ".g")):
+                self.files.append({k: v for k, v in item.items() if k != "root"})
+        self.files.sort(key=lambda f: -f.get("modified", 0))
+        self.file_generation += 1
+        self.sequence += 1
+
     def stream_message(self, message):
         if "error" in message:
             raise RuntimeError(
                 "Moonraker subscription rejected: " + str(message["error"])
             )
         method = message.get("method")
-        if method == "notify_status_update":
+        if method == "notify_filelist_changed":
+            self.filelist_changed(message.get("params", [{}])[0])
+        elif method == "notify_status_update":
             params = message["params"]
             self.merge_status(params[0], params[1] if len(params) > 1 else None)
             self.stream_connected = True
@@ -1638,6 +1729,9 @@ class Service:
             try:
                 ws = WebSocket(self.mr.base)
                 with self.lock:
+                    self.files_need_refresh = True
+                    self.files_preloaded = False
+                    self.files_preload_retry_at = 0
                     self.cfs_initializing = True
                 self.subscription_refresh.clear()
                 ws.send(
@@ -1802,6 +1896,21 @@ class Service:
             )
             self.artwork_key = signature
 
+    def preload_print_preview(self, now):
+        filename = self.status.get("print_stats", {}).get("filename", "")
+        if not filename or filename == self.print_file:
+            return
+        key = (self.printer_generation, filename)
+        previous, retry_at, failures = self.preview_retry
+        if previous == key and now < retry_at:
+            return
+        if self.refresh_print_preview(filename):
+            self.print_file = filename
+            self.preview_retry = (None, 0.0, 0)
+        else:
+            failures = failures + 1 if previous == key else 1
+            self.preview_retry = (key, now + min(60, 3 * 2 ** min(failures, 5)), failures)
+
     def refresh_print_preview(self, filename):
         preview = None
         meta = {}
@@ -1855,6 +1964,42 @@ class Service:
                 if retry_errors and not meta.get("thumbnails"):
                     raise
         return meta, embedded
+
+    def request_file_thumbnails(self, first, count):
+        with self.lock:
+            self.file_window = (first, count)
+            if self.visible_page != "files":
+                return
+            self.thumbnail_pending = (list(self.files[first:first + count]), self.file_generation)
+            if self.thumbnail_running:
+                return
+            self.thumbnail_running = True
+        try:
+            threading.Thread(target=self.thumbnail_worker, daemon=True).start()
+        except Exception:
+            with self.lock:
+                self.thumbnail_running = False
+            raise
+
+    def thumbnail_worker(self):
+        try:
+            while True:
+                with self.lock:
+                    pending = self.thumbnail_pending
+                    self.thumbnail_pending = None
+                    if pending is None:
+                        self.thumbnail_running = False
+                        return
+                files, generation = pending
+                for item in files:
+                    with self.lock:
+                        if self.visible_page != "files" or self.thumbnail_pending is not None:
+                            break
+                    self.file_thumbnails([item], generation)
+        except Exception:
+            with self.lock:
+                self.thumbnail_running = False
+            raise
 
     def file_thumbnails(self, files, generation=None):
         for item in files:
@@ -1933,9 +2078,28 @@ class Service:
         info["usb"] = disk
         info["free"] = storage.free_space(str(self.config_path.parent))
         info["wifi"] = self.wifi.status()
-        info["timezone"] = platform.system_zone()
+        now = time.monotonic()
+        if now - self.static_platform_at >= 300:
+            self.refresh_static_platform()
+        info.update(self.static_platform)
+        with self.lock:
+            self.merge_platform(info, disk)
         try:
-            info["stock_firmware"] = (
+            self.prepare_artwork()
+            self.prepare_icons()
+        except (OSError, ValueError):
+            pass
+
+    def refresh_static_platform(self):
+        self.static_platform["timezone"] = platform.system_zone()
+        version = Path(__file__).resolve().parents[1] / "VERSION"
+        if version.exists():
+            self.static_platform["screen_version"] = version.read_text().strip()
+        if self.static_platform.get("stock_firmware"):
+            self.static_platform_at = time.monotonic()
+            return
+        try:
+            self.static_platform["stock_firmware"] = (
                 subprocess.check_output(
                     ["fw_printenv", "version"], timeout=3, stderr=subprocess.DEVNULL
                 )
@@ -1945,48 +2109,42 @@ class Service:
             )
         except (OSError, subprocess.SubprocessError):
             pass
-        version = Path(__file__).resolve().parents[1] / "VERSION"
-        if version.exists():
-            info["screen_version"] = version.read_text().strip()
-        with self.lock:
-            for key in (
-                "recordings",
-                "timelapse",
-                "printer_image",
-                "thumbnail",
-                "file_thumbnail",
-                "estimated_time",
-                "screen_version",
-                "version",
-                "asleep",
-                "icons",
-                "file_thumbnails",
-                "print_preview_busy",
-                "starting_file",
-                "preview_file",
-                "layer_count",
-                "stock_firmware",
-            ):
-                if key in self.platform:
-                    info[key] = self.platform[key]
-            if disk and disk.get("mounted"):
-                info["usb_free"] = storage.free_space(platform.USB_MOUNT)
-            uid = disk.get("id") if disk else None
-            if self.usb_initialized and uid != self.usb_id:
-                self.event(
-                    "USB drive connected" if uid else "USB drive removed", timed=True
-                )
-                if not uid and self.files_source == "usb":
-                    self.files = []
-                    self.files_source = "gcodes"
-            self.usb_initialized = True
-            self.usb_id = uid
-            self.platform = info
-        try:
-            self.prepare_artwork()
-            self.prepare_icons()
-        except (OSError, ValueError):
-            pass
+        self.static_platform_at = time.monotonic()
+
+    def merge_platform(self, info, disk):
+        for key in (
+            "recordings",
+            "timelapse",
+            "printer_image",
+            "thumbnail",
+            "file_thumbnail",
+            "estimated_time",
+            "screen_version",
+            "version",
+            "asleep",
+            "icons",
+            "file_thumbnails",
+            "print_preview_busy",
+            "starting_file",
+            "preview_file",
+            "layer_count",
+            "stock_firmware",
+        ):
+            if key in self.platform:
+                info[key] = self.platform[key]
+        if disk and disk.get("mounted"):
+            info["usb_free"] = storage.free_space(platform.USB_MOUNT)
+        uid = disk.get("id") if disk else None
+        if self.usb_initialized and uid != self.usb_id:
+            self.event(
+                "USB drive connected" if uid else "USB drive removed", timed=True
+            )
+            if not uid and self.files_source == "usb":
+                self.files = []
+                self.files_source = "gcodes"
+        self.usb_initialized = True
+        self.usb_id = uid
+        self.platform = info
 
     def refresh_catalogue(self):
         """Keep one separate catalogue file; slot changes remain live status."""
@@ -1996,6 +2154,9 @@ class Service:
                 key = (self.status_epoch, revision)
                 if self.catalogue_revision == key:
                     return
+                if self.catalogue_retry[0] == key and time.monotonic() < self.catalogue_retry[1]:
+                    return
+                self.catalogue_retry = (key, time.monotonic() + 30)
             result = self.mr.request(
                 "/printer/objects/query?hark_cfs_slots=library,materials,revision"
             )
@@ -2005,8 +2166,10 @@ class Service:
             if not any(name in data for name in ("library", "materials")):
                 return
             materials = list(data.get("library", [])) + list(data.get("materials", []))
-            self.catalogue.publish(materials)
             with self.lock:
+                if key[0] != self.status_epoch:
+                    return
+                self.catalogue.publish(materials)
                 self.materials = self.filaments = materials
                 self.catalogue_revision = (self.status_epoch, data.get("revision", revision))
 
@@ -2113,10 +2276,7 @@ class Service:
                 self.refresh_catalogue()
                 self.update_screen_idle()
                 self.preload_files()
-                filename = self.status.get("print_stats", {}).get("filename", "")
-                if filename and filename != self.print_file:
-                    if self.refresh_print_preview(filename):
-                        self.print_file = filename
+                self.preload_print_preview(now)
                 if now - platform_at > 5:
                     self.refresh_platform()
                     platform_at = now

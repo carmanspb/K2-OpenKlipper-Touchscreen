@@ -30,6 +30,28 @@ Every reconnect starts with another full snapshot; queued updates are consumed
 in order. The renderer and backend are installed together as one versioned unit.
 Errors, operation state and safety availability are transmitted regardless of the visible page.
 
+Startup overlaps printer initialization with file-list preparation as soon as a
+printer connection is available; optional previews never delay the ready screen.
+Heater limits are cached by configuration, axis bounds by configuration and live
+coordinate inputs, and UI availability by the policy's state dependencies.
+Executing an action still validates fresh printer state and configuration.
+
+The initial file list contains no eagerly generated thumbnails. The renderer
+requests seven rows at a time (visible rows plus a small lookahead), updating the
+window after scrolling. A single coalescing worker prepares those images and
+keeps unchanged previews. Moonraker file notifications update individual entries;
+directory changes, reconnects and manual refreshes reconcile the complete list.
+Events received during a listing request are replayed before publishing it.
+Opening Files reuses the listing while its event stream is healthy.
+
+Hardware serial and successfully read firmware version are cached for the service
+lifetime. Timezone and package version are checked every five minutes, and a
+screen timezone change invalidates that cache immediately. Network, USB and free
+space remain live background reads. Failed print previews back off up to one
+minute; a new print retries immediately. An unavailable material catalogue retries
+at most every thirty seconds per source epoch/revision. CFS initialization and
+Filament-page discovery retain their existing polling policy.
+
 Large static data is kept in atomic, versioned files under the installation's
 `native-screen-cache` directory:
 

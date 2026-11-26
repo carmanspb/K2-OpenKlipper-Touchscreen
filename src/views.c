@@ -1089,6 +1089,25 @@ static lv_obj_t *list_action(lv_obj_t *list, const char *name, int x, int y, con
     lv_obj_set_style_border_width(control, 0, LV_STATE_DEFAULT);
     return control;
 }
+void files_window_report(lv_obj_t *list) {
+    if (app.fixture || !app.service_link || strcmp(app.route, "files"))
+        return;
+    int first = lv_obj_get_scroll_y(list) / 88;
+    if (first < 0)
+        first = 0;
+    cJSON *request = cJSON_CreateObject();
+    cJSON_AddStringToObject(request, "action", "file_window");
+    cJSON_AddNumberToObject(request, "first", first);
+    cJSON_AddNumberToObject(request, "count", 7);
+    char *raw = cJSON_PrintUnformatted(request);
+    if (!platform_send(raw))
+        ui_transport_lost();
+    free(raw);
+    cJSON_Delete(request);
+}
+static void files_scrolled(lv_event_t *event) {
+    files_window_report(lv_event_get_target(event));
+}
 static void files_view(void) {
     button_fixed(app.content, "icon:refresh-cw", 600, 9, 64, 64, "refresh_files", false);
     const char *refresh = *S("files_refresh.error") ? "Refresh failed — tap refresh to retry" : "";
@@ -1096,6 +1115,7 @@ static void files_view(void) {
     lv_obj_set_height(status, 22);
     lv_label_set_long_mode(status, LV_LABEL_LONG_DOT);
     lv_obj_t *list = scroll_area(83, 462);
+    lv_obj_add_event_cb(list, files_scrolled, LV_EVENT_SCROLL_END, NULL);
     cJSON *f;
     int y = 0;
     cJSON_ArrayForEach(f, J("files")) {

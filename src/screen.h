@@ -142,4 +142,5 @@ const char *slot_label(const char *);
 cJSON *slot_record(const char *);
 void modal_frame(const char *, int, int, int, int, bool);
 void close_modal(void);
+void files_window_report(lv_obj_t *list);
 #endif

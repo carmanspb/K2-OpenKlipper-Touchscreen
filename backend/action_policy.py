@@ -260,3 +260,20 @@ def availability(status, connected, operations):
         blocked = reason(request, status, connected, operations)
         result[key] = {"enabled": not bool(blocked), "reason": blocked}
     return result
+
+
+def availability_inputs(status, connected, operations):
+    """Only fields read by controls/reason; telemetry alone cannot change policy."""
+    cfs = status.get("k2_cfs", {})
+    return (
+        connected,
+        status.get("webhooks", {}).get("state", "ready"),
+        status.get("toolhead", {}).get("homed_axes", ""),
+        status.get("print_stats", {}).get("state"),
+        status.get("print_stats", {}).get("filename", ""),
+        status.get("filament_switch_sensor filament_sensor", {}).get("filament_detected"),
+        cfs.get("active_slot"), cfs.get("change_pending"),
+        (cfs.get("filament_activity") or {}).get("action"),
+        [{key: op.get(key) for key in ("action", "resources", "interrupt", "heater", "fan", "kind", "label")}
+         for op in operations],
+    )

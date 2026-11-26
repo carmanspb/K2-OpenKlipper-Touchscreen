@@ -1343,6 +1343,8 @@ void ui_render(void) {
     else
         views_render();
     restore_scroll();
+    if (current_scroll && !strcmp(app.route, "files"))
+        files_window_report(current_scroll);
     ui_update();
     app.rendered = true;
     views_overlay();
