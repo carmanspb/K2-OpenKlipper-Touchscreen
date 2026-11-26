@@ -60,6 +60,8 @@ def main():
             ("file", "file", "idle", []),
             ("timers", "timers", "idle", []),
             ("idle", "home", "idle", []),
+            ("idle-cfs-colours", "home", "cfs-colours", []),
+            ("idle-cfs-empty", "home", "cfs-empty", []),
             ("idle-no-cfs", "home", "no-cfs", []),
             ("idle-lit", "home", "idle-lit", []),
             ("file-reading", "file", "file-reading", []),

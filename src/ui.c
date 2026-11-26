@@ -872,12 +872,21 @@ void ui_init(const char *assets, const char *socket) {
 /* Home retains value widgets between snapshots. Rebuild its static artwork
  * and controls only when one of their actual inputs changes. */
 static void home_state(char *buffer, size_t size) {
-    snprintf(buffer, size, "%s|%g|%d|%d|%g|%g|%g|%g|%s|%s", S("status.k2_cfs.active_slot"),
-             N("status.hark_cfs_slots.revision"), B("status.k2_cfs.online"),
+    snprintf(buffer, size, "%s|%d|%d|%g|%g|%g|%g|%s|%s", S("status.k2_cfs.active_slot"),
+             B("status.k2_cfs.online"),
              B("status.filament_switch_sensor filament_sensor.filament_detected"),
              N("status.output_pin chamber_led.value"), N("status.fan.speed"),
              N("status.fan_generic auxiliary_fan.speed"), N("status.fan_generic exhaust_fan.speed"),
              S("platform.printer_image"), S("platform.thumbnail"));
+    /* Presence/structure can add controls; colour edits only tint existing
+     * dots and spool masks in views_refresh(), preserving the cached image. */
+    cJSON *record;
+    cJSON_ArrayForEach(record, J("slots")) {
+        size_t used = strlen(buffer);
+        if (used < size)
+            snprintf(buffer + used, size - used, "|%s:%d", jstr(record, "slot", ""),
+                     jbool(record, "loaded", false));
+    }
 }
 static void move_state(char *buffer, size_t size) {
     bool enabled = false;
@@ -1313,6 +1322,8 @@ void ui_render(void) {
     snprintf(rendered_route, 48, "%s", app.route);
     app.dirty = false;
     rebuild = false;
+    printer_spools_reset();
+    memset(app.cfs_dots, 0, sizeof(app.cfs_dots));
     memset(app.current, 0, sizeof(app.current));
     memset(app.target, 0, sizeof(app.target));
     memset(app.temperature_arrow, 0, sizeof(app.temperature_arrow));

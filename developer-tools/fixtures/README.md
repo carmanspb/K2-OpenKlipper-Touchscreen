@@ -6,7 +6,7 @@ project-authored artwork, not a saved printer configuration.
 - `cases/`: small JSON recipes naming a scenario, opening page and optional clicks.
 - `assets/`: the example three-part print and printer illustrations, as SVG sources
   and ready-to-use PNGs. The matching printer PNGs live in `touchscreen/assets/`
-  and are copied unchanged into the previews.
+  and are prepared on the same display canvas as the runtime.
 
 Run a case from the repository root:
 
