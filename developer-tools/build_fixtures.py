@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Rasterize the bundled, project-authored SVG preview artwork."""
+"""Refresh preview copies of production artwork and rasterize SVG fixtures."""
 
+import shutil
 import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
@@ -28,11 +29,9 @@ def render(source, destination):
 def main():
     render(ASSETS / "demo-part.svg", ASSETS / "demo-part.png")
     render(ASSETS / "demo-part-dark.svg", ASSETS / "demo-part-dark.png")
-    render(ASSETS.parents[2] / "assets/printer.svg", ASSETS / "demo-printer-combo.png")
-    render(
-        ASSETS.parents[2] / "assets/printer.svg",
-        ASSETS.parents[2] / "assets/printer-with-cfs.png",
-    )
+    # The reviewed CFS illustration is a production PNG, not an SVG export.
+    # Copy it so regenerating fixtures cannot restore the old illustration.
+    shutil.copyfile(ASSETS.parents[2] / "assets/printer-with-cfs.png", ASSETS / "demo-printer-combo.png")
     tree = ET.parse(ASSETS.parents[2] / "assets/printer.svg")
     root = tree.getroot()
     root.remove(next(child for child in root if child.get("id") == "cfs"))
