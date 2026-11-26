@@ -81,8 +81,6 @@ restarts its two processes; it does not require restarting Klipper.
 | --- | --- |
 | ![Hours and minutes remaining](screenshots/printing-long.png) | ![Dark model preview](screenshots/dark-preview.png) |
 
-![Bulb with rays when on](screenshots/idle-lit.png)
-
 ### Temperatures
 
 - Choose a preset or tap the target for numeric entry. Limits follow configuration.
