@@ -839,7 +839,7 @@ class ServiceTests(unittest.TestCase):
                 self.assertIn("resources", baseline)
                 self.assertNotIn("_screen_patch", baseline)
                 with self.s.lock:
-                    self.s.sequence += 1
+                    self.s.changed()
                     self.s.status["extruder"] = {
                         "temperature": self.s.status.get("extruder", {}).get("temperature", 20) + 1
                     }

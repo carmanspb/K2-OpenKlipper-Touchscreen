@@ -36,6 +36,7 @@ import gcode_metadata
 import model
 from snapshot_codec import SnapshotEncoder, same_value
 from static_resources import ResourceFile
+from state_updates import WakeChannel
 import platform_services as platform
 import storage
 
@@ -271,6 +272,10 @@ class Service:
         except (OSError, ValueError):
             self.prefs = {}
         self.lock = threading.RLock()
+        self.state_revision = 0
+        self.listeners = set()
+        self.presentation = None
+        self.presentation_deadline = None
         self.status, self.settings, self.materials = {}, {}, []
         self.events, self.notices, self.files, self.metadata = [], [], [], {}
         self.operations = {}
@@ -288,7 +293,7 @@ class Service:
         self.result = None
         self.operation_id = 0
         self.history_id = 0
-        self.wifi = platform.Wifi()
+        self.wifi = platform.Wifi(on_change=self.notify_state)
         self.platform = {}
         self.presentation_cache = {}
         self.network_at = None
@@ -346,6 +351,37 @@ class Service:
         self.catalogue_retry = (None, 0.0)
         self.artwork_key = None
 
+    def notify_state(self):
+        """Every asynchronous UI-state writer invalidates and wakes publication."""
+        with self.lock:
+            self.state_revision += 1
+            self.presentation = None
+            self.presentation_deadline = None
+            for listener in self.listeners:
+                listener.signal()
+
+    def changed(self):
+        with self.lock:
+            self.sequence += 1
+            self.notify_state()
+
+    def next_snapshot_deadline(self):
+        return min((entry[1] for entry in self.requested_values.values()), default=None)
+
+    def screen_snapshot(self):
+        """Build once per state revision, shared by all local connections."""
+        with self.lock:
+            if self.presentation_deadline is not None and time.monotonic() >= self.presentation_deadline:
+                self.notify_state()
+                self.presentation_deadline = None
+            if self.presentation is None:
+                value = self.snapshot()
+                for key in ("settings", "materials", "zones", "timezone_presets", "tune_limits"):
+                    value.pop(key, None)
+                self.presentation = value
+                self.presentation_deadline = self.next_snapshot_deadline()
+            return self.presentation
+
     def event(self, title, detail="", fault=False, timed=False, filament_slot=None):
         with self.lock:
             if fault and any(
@@ -371,7 +407,7 @@ class Service:
             self.events = (self.events + [event])[-200:]
             if fault or timed or filament_slot is not None:
                 self.notices.append(event)
-            self.sequence += 1
+            self.changed()
         if fault or filament_slot is not None:
             self.wake_screen()
         return event
@@ -400,7 +436,9 @@ class Service:
             # Status objects are replaced by merge_status, never edited in
             # place. Retain unchanged references through the presentation layer.
             status = dict(self.status)
-            self.settings = settings
+            if not same_value(self.settings, settings):
+                self.settings = settings
+                self.notify_state()
             self.settings_refresh_needed = False
         if model.stopped(status):
             raise RuntimeError("Printer stopped. Resolve its error first.")
@@ -423,7 +461,10 @@ class Service:
             with self.lock:
                 entering = page == "filament" and self.visible_page != page
                 changed_motion = (self.visible_page == "move") != (page == "move")
+                previous_page = self.visible_page
                 self.visible_page = page
+                if page != previous_page:
+                    self.notify_state()
                 if changed_motion:
                     self.status.pop("motion_report", None)
                     self.subscription_refresh.set()
@@ -455,7 +496,7 @@ class Service:
                     return
                 self.files_refreshing = True
                 self.files_error = ""
-                self.sequence += 1
+                self.changed()
             threading.Thread(target=self.refresh_files, daemon=True).start()
             return
         if action == "activity":
@@ -464,7 +505,7 @@ class Service:
         if action == "ack":
             with self.lock:
                 self.notices = [n for n in self.notices if n["id"] != request.get("id")]
-                self.sequence += 1
+                self.changed()
             return
         spec = action_policy.describe(request)
         with self.lock:
@@ -505,7 +546,7 @@ class Service:
                 for op in self.operations.values()
             ):
                 self.pending_fans[request["fan"]] = dict(request)
-                self.sequence += 1
+                self.changed()
                 return
             if action == "temperature":
                 if any(
@@ -514,7 +555,7 @@ class Service:
                     for op in self.operations.values()
                 ):
                     self.pending_temperatures[request["heater"]] = dict(request)
-                    self.sequence += 1
+                    self.changed()
                     return
             self.operation_id += 1
             token = self.operation_id
@@ -533,7 +574,7 @@ class Service:
                 "interrupt": spec.interrupt,
                 "started": time.time(),
             }
-            self.sequence += 1
+            self.changed()
         try:
             threading.Thread(
                 target=self.run_operation, args=(dict(request), token), daemon=True
@@ -556,7 +597,7 @@ class Service:
                         ),
                         None,
                     )
-                self.sequence += 1
+                self.changed()
             raise
 
     @property
@@ -592,7 +633,7 @@ class Service:
         finally:
             with self.lock:
                 self.files_refreshing = False
-                self.sequence += 1
+                self.changed()
 
     @staticmethod
     def operation_label(action):
@@ -638,7 +679,7 @@ class Service:
                 self.result = result
                 self.results.append(result)
                 self.operations.pop(token, None)
-                self.sequence += 1
+                self.changed()
                 if (
                     action == "file"
                     and request.get("selection_id") == self.selection_id
@@ -1161,7 +1202,7 @@ class Service:
                         if live.get(path) != self.file_signatures[path]:
                             self.file_signatures.pop(path, None)
                             previews.pop(path, None)
-                    self.sequence += 1
+                    self.changed()
                 if self.visible_page == "files":
                     self.request_file_thumbnails(*self.file_window)
         elif action in ("delete_file", "delete_recording"):
@@ -1252,7 +1293,7 @@ class Service:
                     if preview:
                         self.platform["file_thumbnail"] = preview
                     self.file_read = {"busy": False, "path": path}
-                    self.sequence += 1
+                    self.changed()
         elif action == "start":
             self.start_print(r, status, settings)
         elif action == "preference":
@@ -1310,7 +1351,7 @@ class Service:
                 updated["ejected"] = True
             with self.lock:
                 self.platform["usb"] = updated
-                self.sequence += 1
+                self.changed()
             self.event(
                 "USB formatted" if action == "usb_format" else "USB ejected", timed=True
             )
@@ -1345,7 +1386,7 @@ class Service:
         else:
             raise ValueError("Unknown touchscreen action")
         with self.lock:
-            self.sequence += 1
+            self.changed()
 
     def filament_action(self, action, r, status):
         cfs = status.get("k2_cfs", {})
@@ -1464,7 +1505,7 @@ class Service:
             if self.selected_file == path and self.platform.get("file_thumbnail"):
                 self.platform["thumbnail"] = self.platform["file_thumbnail"]
             self.platform["print_preview_busy"] = False
-            self.sequence += 1
+            self.changed()
         try:
             if mesh:
                 self.gcode(
@@ -1476,7 +1517,7 @@ class Service:
         except Exception:
             with self.lock:
                 self.platform.pop("starting_file", None)
-                self.sequence += 1
+                self.changed()
             for command in ["CFS_TOOL_MAP RESET=1 QUIET=1"] + (
                 [
                     "SET_GCODE_VARIABLE MACRO=START_PRINT VARIABLE=screen_full_mesh VALUE=0"
@@ -1597,6 +1638,7 @@ class Service:
                 self.pending_temperatures.clear()
                 self.pending_fans.clear()
                 self.cfs_event_id = None
+            state_changed = not self.connected or new_epoch or reset_clock
             initialized = bool(self.status)
             previous_file = self.status.get("print_stats", {}).get("filename", "")
             previous_state = self.status.get("print_stats", {}).get("state", "")
@@ -1611,11 +1653,13 @@ class Service:
                 if isinstance(values, dict) and not full:
                     updated = dict(self.status.get(name, {}))
                     updated.update(values)
-                    self.status[name] = updated
-                else:
+                    values = updated
+                if name not in self.status or not same_value(self.status[name], values):
                     self.status[name] = values
+                    state_changed = True
             self.connected = True
             self.last_status_at = time.monotonic()
+            state_changed |= "connection_error" in self.platform
             self.platform.pop("connection_error", None)
             if self.status.get("webhooks", {}).get("state") != "ready":
                 self.requested_values.clear()
@@ -1658,7 +1702,8 @@ class Service:
                         "filament",
                     }:
                         operation["detail"] = stage
-            self.sequence += 1
+            if state_changed:
+                self.changed()
         if model.active(self.status) or self.status.get("webhooks", {}).get(
             "state"
         ) in ("error", "shutdown"):
@@ -1703,7 +1748,7 @@ class Service:
                 self.files.append({k: v for k, v in item.items() if k != "root"})
         self.files.sort(key=lambda f: -f.get("modified", 0))
         self.file_generation += 1
-        self.sequence += 1
+        self.changed()
 
     def stream_message(self, message):
         if "error" in message:
@@ -1716,7 +1761,7 @@ class Service:
         elif method == "notify_status_update":
             params = message["params"]
             self.merge_status(params[0], params[1] if len(params) > 1 else None)
-            self.stream_connected = True
+            self.set_stream_connected(True)
         elif method == "notify_gcode_response":
             line = message.get("params", [""])[0]
             if line.startswith("!!"):
@@ -1727,7 +1772,7 @@ class Service:
                 result["status"], result.get("eventtime"), full=True,
                 new_epoch=message.get("id") != 2
             )
-            self.stream_connected = True
+            self.set_stream_connected(True)
         elif method in (
             "notify_klippy_shutdown",
             "notify_klippy_disconnected",
@@ -1739,8 +1784,14 @@ class Service:
                 self.printer_generation += 1
             self.stream_connected = False
             self.connected = False
-            self.sequence += 1
+            self.changed()
             raise EOFError("Klipper state changed; renew the subscription")
+
+    def set_stream_connected(self, connected):
+        with self.lock:
+            if self.stream_connected != connected:
+                self.stream_connected = connected
+                self.notify_state()
 
     def subscription_objects(self):
         objects = {
@@ -1785,6 +1836,7 @@ class Service:
                 with self.lock:
                     self.stream_connected = False
                     self.status.pop("motion_report", None)
+                    self.notify_state()
                 if time.monotonic() - last_warning >= 30:
                     print("screen status stream: %s" % error, flush=True)
                     last_warning = time.monotonic()
@@ -1842,7 +1894,7 @@ class Service:
                 return
             self.asleep = False
             self.platform["asleep"] = False
-            self.sequence += 1
+            self.changed()
         threading.Thread(target=self.screen_power, args=(True,), daemon=True).start()
 
     def update_screen_idle(self):
@@ -1864,7 +1916,7 @@ class Service:
             if sleep:
                 self.asleep = True
                 self.platform["asleep"] = True
-                self.sequence += 1
+                self.changed()
         if sleep:
             self.screen_power(False)
 
@@ -1967,7 +2019,7 @@ class Service:
             with self.lock:
                 if self.status.get("print_stats", {}).get("filename") == filename:
                     self.platform["print_preview_busy"] = False
-                    self.sequence += 1
+                    self.changed()
             return False
         with self.lock:
             if self.status.get("print_stats", {}).get("filename") != filename:
@@ -1979,7 +2031,7 @@ class Service:
                 self.platform["thumbnail"] = preview
             self.platform["estimated_time"] = meta.get("estimated_time", 0)
             self.platform["print_preview_busy"] = False
-            self.sequence += 1
+            self.changed()
         return True
 
     def read_metadata(self, path, retry_errors=False):
@@ -2063,13 +2115,13 @@ class Service:
                     else:
                         previews.pop(path, None)
                     self.file_signatures[path] = signature
-                    self.sequence += 1
+                    self.changed()
             except Exception:
                 with self.lock:
                     if generation is not None and generation != self.file_generation:
                         return
                     self.platform.setdefault("file_thumbnails", {}).pop(path, None)
-                    self.sequence += 1
+                    self.changed()
                 continue
 
     def prepare_thumbnail(self, path, meta, key, bounds, publish=True):
@@ -2106,9 +2158,13 @@ class Service:
             identity = storage.system_identity()
             wifi = self.wifi.status()
             with self.lock:
+                changed = any(not same_value(self.platform.get(key), value) for key, value in identity.items())
+                changed |= not same_value(self.platform.get("wifi"), wifi)
                 self.platform.update(identity)
                 self.platform["wifi"] = wifi
                 self.network_at = time.monotonic()
+                if changed:
+                    self.notify_state()
         finally:
             self.network_lock.release()
 
@@ -2118,6 +2174,8 @@ class Service:
         )
 
     def refresh_platform(self):
+        with self.lock:
+            previous = deepcopy(self.platform)
         # Network reads run once at startup, on entry, and while visible.
         info = {key: self.platform[key] for key in ("interfaces", "wifi", "serial") if key in self.platform}
         disk = platform.usb_disk()
@@ -2142,6 +2200,9 @@ class Service:
             self.prepare_icons()
         except (OSError, ValueError):
             pass
+        with self.lock:
+            if not same_value(previous, self.platform):
+                self.notify_state()
 
     def refresh_static_platform(self):
         self.static_platform["timezone"] = platform.system_zone()
@@ -2198,6 +2259,7 @@ class Service:
             )
             if not uid and self.files_source == "usb":
                 self.files = []
+                self.file_generation += 1
                 self.files_source = "gcodes"
         self.usb_initialized = True
         self.usb_id = uid
@@ -2226,7 +2288,10 @@ class Service:
             with self.lock:
                 if key[0] != self.status_epoch:
                     return
+                previous = self.catalogue.descriptor
                 self.catalogue.publish(materials)
+                if previous != self.catalogue.descriptor:
+                    self.notify_state()
                 self.materials = self.filaments = materials
                 self.catalogue_revision = (self.status_epoch, data.get("revision", revision))
 
@@ -2314,22 +2379,33 @@ class Service:
                         epoch = self.status_epoch
                     refreshed = self.mr.settings()
                     with self.lock:
+                        settings_changed = epoch == self.status_epoch and not same_value(self.settings, refreshed)
                         if epoch == self.status_epoch:
                             self.settings = refreshed
                             self.settings_refresh_needed = False
+                    previous_resource = self.resources.descriptor
                     self.resources.publish({
                         "settings": self.settings,
                         "zones": storage.timezones(),
                         "timezone_presets": storage.timezone_presets(),
                         "tune_limits": model.TUNE_LIMITS,
                     })
+                    with self.lock:
+                        if settings_changed or previous_resource != self.resources.descriptor:
+                            self.notify_state()
                     config_at = now
+                    previous_timelapse = self.platform.get("timelapse")
                     try:
-                        self.platform["timelapse"] = self.mr.request(
-                            "/machine/timelapse/settings"
-                        )
+                        timelapse = self.mr.request("/machine/timelapse/settings")
+                        with self.lock:
+                            self.platform["timelapse"] = timelapse
+                            if not same_value(previous_timelapse, timelapse):
+                                self.notify_state()
                     except Exception:
-                        self.platform.pop("timelapse", None)
+                        with self.lock:
+                            if "timelapse" in self.platform:
+                                self.platform.pop("timelapse")
+                                self.notify_state()
                 self.refresh_catalogue()
                 self.update_screen_idle()
                 self.preload_files()
@@ -2372,7 +2448,7 @@ class Service:
                         self.platform["connection_error"] = str(error)
                     else:
                         self.platform["background_error"] = str(error)
-                    self.sequence += 1
+                    self.changed()
                 now = time.monotonic()
                 if now - self.last_poll_warning >= 30:
                     print(
@@ -2418,10 +2494,24 @@ class Service:
         previous = ""
         last_warning = 0.0
         encoder = SnapshotEncoder(immutable_status=True)
+        wake = WakeChannel()
+        last_revision, last_build = None, 0.0
+        with self.lock:
+            self.listeners.add(wake)
         try:
             while True:
-                readable, _, _ = select.select([connection], [], [], 0.2)
-                if readable:
+                with self.lock:
+                    now = time.monotonic()
+                    deadline = self.next_snapshot_deadline()
+                    when = last_build + 0.2 if last_revision != self.state_revision else None
+                    if deadline is not None:
+                        when = min(when, deadline) if when is not None else deadline
+                    timeout = max(0, when - now) if when is not None else None
+                readable, _, _ = select.select([connection, wake.reader], [], [], timeout)
+                command_received = connection in readable
+                if wake.reader in readable:
+                    wake.drain()
+                if command_received:
                     chunk = connection.recv(65536)
                     if not chunk:
                         break
@@ -2440,27 +2530,30 @@ class Service:
                             # A rapid second tap is rejected, not queued or
                             # promoted into a modal printer error.
                             with self.lock:
-                                self.sequence += 1
+                                self.changed()
                         except Exception as error:
                             self.event("Request failed", str(error), fault=True)
                 started, cpu_started = time.monotonic(), time.thread_time()
                 with self.lock:
                     lock_wait = time.monotonic() - started
-                    value = self.snapshot()
-                    # These large resources are local files, not telemetry.
-                    # The renderer loads core data on revision changes and
-                    # loads the material catalogue only in the chooser.
-                    for key in ("settings", "materials", "zones", "timezone_presets", "tune_limits"):
-                        value.pop(key, None)
+                    now = time.monotonic()
+                    deadline = self.next_snapshot_deadline()
+                    expired = deadline is not None and now >= deadline
+                    if last_revision == self.state_revision and not expired:
+                        continue
+                    if not command_received and last_revision is not None and not expired and now - last_build < 0.2:
+                        continue
+                    value = self.screen_snapshot()
+                    last_revision, last_build = self.state_revision, now
                     snapshot_at = time.monotonic()
                     # The paired renderer receives only changed sections after
                     # the initial full state on every connection.
                     encoded = encoder.encode(value, immutable=(
                         "heaters", "slots", "axes", "availability", "prefs",
                         "filament_activity", "refill", "wifi",
-                    ))
-                # Suppress identical snapshots. The 200 ms idle wait bounds
-                # routine traffic; incoming commands still wake select immediately.
+                    ), revisions={"files": self.file_generation, "events": self.history_id})
+                # Routine events coalesce within 200 ms; quiet clients block.
+                # Commands bypass coalescing and timers retain explicit deadlines.
                 encoded_at = time.monotonic()
                 if encoded is not None and encoded != previous:
                     connection.sendall(encoded.encode() + b"\n")
@@ -2485,12 +2578,15 @@ class Service:
             pass
         finally:
             with self.lock:
+                self.listeners.discard(wake)
+                wake.close()
                 if self.view_client is connection:
                     if self.visible_page == "move":
                         self.status.pop("motion_report", None)
                         self.subscription_refresh.set()
                     self.visible_page = ""
                     self.view_client = None
+                    self.notify_state()
             connection.close()
 
 

@@ -40,17 +40,24 @@ class SectionEncoder:
         self.output = ""
         self.full_dirty = True
         self.references = {}
+        self.revisions = {}
 
-    def encode(self, value, immutable=()):
+    def encode(self, value, immutable=(), revisions=None):
+        revisions = revisions or {}
         changed = set()
         removed = self.encoded.keys() - value.keys()
         for key in removed:
             self.encoded.pop(key)
             self.values.pop(key, None)
             self.references.pop(key, None)
+            self.revisions.pop(key, None)
             if key == "status":
                 self.status = None
         for key, item in value.items():
+            if key not in revisions:
+                self.revisions.pop(key, None)
+            if key in revisions and key in self.revisions and self.revisions[key] == revisions[key]:
+                continue
             # Explicitly immutable sections are replaced by the owner on every
             # refresh. All other values retain mutation-safe comparisons.
             if key in immutable and key in self.references and self.references[key] is item:
@@ -76,6 +83,10 @@ class SectionEncoder:
                 changed.add(key)
             if key in immutable:
                 self.references[key] = item
+            if key in revisions:
+                self.revisions[key] = revisions[key]
+            else:
+                self.revisions.pop(key, None)
         self.changed, self.removed = changed, removed
         self.full_dirty |= bool(changed or removed)
         if self.full_dirty and self.build_output:
@@ -99,9 +110,9 @@ class SnapshotEncoder(SectionEncoder):
         super().__init__(immutable_status=immutable_status, build_output=False)
         self.sent = False
 
-    def encode(self, value, immutable=()):
+    def encode(self, value, immutable=(), revisions=None):
         previous_status_object = self.status is not None
-        super().encode(value, immutable=immutable)
+        super().encode(value, immutable=immutable, revisions=revisions)
         if not self.sent:
             self.sent = True
             return self.full_json(value)

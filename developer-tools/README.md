@@ -56,6 +56,26 @@ motion still subscribes only on Move. Dynamic CFS objects retain their complete
 subscription and discovery behavior. No temperature, operation, fault or touch
 refresh interval is reduced.
 
+Renderer publication is event driven. WebSocket status/file notifications, HTTP
+fallback results, action completions, worker progress and background resource
+changes invalidate the shared presentation and wake local socket clients.
+Unchanged telemetry still advances its timestamp/freshness bookkeeping without
+rebuilding the UI state. Quiet clients block in `select()` on their command
+socket and a coalesced wake channel; there is no periodic snapshot tick. Routine
+updates coalesce within the existing 200 ms window, and incoming commands bypass
+that coalescing delay. Optimistic target expiry has an explicit timer deadline.
+The poller retains screen sleep, CFS discovery, HTTP fallback and other background
+schedules, and announces their actual changes through the same publication path.
+
+One presentation is built per state revision and shared across local connections.
+Each connection still owns its encoder and gets an independent full baseline on
+connect/reconnect. File-list generation and history revision skip comparisons of
+unchanged large lists. Writers must call `notify_state()` (or `changed()` when
+advancing the UI sequence) after their state transaction, while holding the state
+lock when changing several related fields. File-list writers must also advance
+`file_generation`. Wi-Fi workers announce progress/completion through their
+callback; duplicate wakeups coalesce without accumulating a message queue.
+
 Derived slots, refill groups, heater presentation, preferences, Wi-Fi presentation
 and availability reuse cached sections until their input values change. The
 encoder also reuses those immutable sections. After the initial full IPC baseline,
