@@ -60,29 +60,36 @@ static void image(lv_obj_t *parent, const char *path, int x, int y) {
     lv_obj_set_pos(o, x, y);
 }
 /* Fit cached artwork without stretching; invalid files use the caller's fallback. */
-static bool image_fit(lv_obj_t *parent, const char *path, int x, int y, int width, int height) {
+static lv_obj_t *image_fit(lv_obj_t *parent, const char *path, int x, int y, int width,
+                           int height) {
     if (!path || !*path)
-        return false;
+        return NULL;
     char source[1400];
     snprintf(source, sizeof(source), "A:%s", path);
     lv_img_header_t info;
     if (lv_img_decoder_get_info(source, &info) != LV_RES_OK || !info.w || !info.h)
-        return false;
+        return NULL;
     int zoom = height * 256 / info.h;
     if (zoom > width * 256 / info.w)
         zoom = width * 256 / info.w;
     if (zoom < 1)
-        return false;
+        return NULL;
     lv_obj_t *preview = lv_img_create(parent);
     lv_img_set_src(preview, source);
     lv_img_set_pivot(preview, 0, 0);
     lv_img_set_zoom(preview, zoom);
     lv_obj_set_pos(preview, x + (width - info.w * zoom / 256) / 2,
                    y + (height - info.h * zoom / 256) / 2);
-    return true;
+    return preview;
 }
+static void home_unit(char *unit, size_t size);
 static void home_image(const char *path, int top, int height) {
-    image_fit(app.content, path, 12, top + 12, HOME_MAIN - 24, height - 24);
+    lv_obj_t *base = image_fit(app.content, path, 12, top + 12, HOME_MAIN - 24, height - 24);
+    if (base && B("platform.printer_spools") && B("status.k2_cfs.fitted")) {
+        char unit[16];
+        home_unit(unit, sizeof(unit));
+        printer_spools(base, unit);
+    }
 }
 cJSON *slot_record(const char *slot) {
     cJSON *rec;
@@ -174,6 +181,25 @@ static void slot_unit(const char *slot, char *unit, size_t size) {
     else
         snprintf(unit, size, "%.*s", (int)n - 1, slot);
 }
+static void home_unit(char *unit, size_t size) {
+    unit[0] = 0;
+    const char *busy = S("filament_activity.slot");
+    const char *active = S("status.k2_cfs.active_slot");
+    if (*filament_activity_label() && *busy && strcmp(busy, "E"))
+        slot_unit(busy, unit, size);
+    else if (*active && feeding_slot(active))
+        slot_unit(active, unit, size);
+    if (!*unit) {
+        cJSON *record;
+        cJSON_ArrayForEach(record, J("slots")) {
+            const char *slot = jstr(record, "slot", "");
+            if (*slot && strcmp(slot, "E")) {
+                slot_unit(slot, unit, size);
+                break;
+            }
+        }
+    }
+}
 static void home_cfs(int top, int height) {
     lv_obj_t *tile = button(app.content, "", HOME_SIDE_X, top, HOME_SIDE_W, height,
                             "home_filament_strip", false);
@@ -184,13 +210,7 @@ static void home_cfs(int top, int height) {
     }
     char unit[16] = "", groups[16][16] = {{0}};
     int units = 0;
-    const char *active = S("status.k2_cfs.active_slot");
-    const char *busy_slot = S("filament_activity.slot");
-    bool busy = *filament_activity_label() && strcmp(busy_slot, "E");
-    if (busy && *busy_slot)
-        slot_unit(busy_slot, unit, sizeof(unit));
-    else if (*active && feeding_slot(active))
-        slot_unit(active, unit, sizeof(unit));
+    home_unit(unit, sizeof(unit));
     cJSON *record;
     cJSON_ArrayForEach(record, J("slots")) {
         const char *slot = jstr(record, "slot", "");
@@ -223,9 +243,12 @@ static void home_cfs(int top, int height) {
         total++;
         if (drawn >= 4)
             continue;
-        int x = 62 + drawn++ * 28, y = (height - 22) / 2;
+        int index = drawn++;
+        int x = 62 + index * 28, y = (height - 22) / 2;
         bool present = jbool(record, "loaded", false);
         lv_obj_t *dot = box(tile, x, y, 22, 22, false);
+        app.cfs_dots[index] = dot;
+        snprintf(app.cfs_dot_slots[index], sizeof(app.cfs_dot_slots[index]), "%s", slot);
         lv_obj_clear_flag(dot, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
         lv_obj_set_style_bg_color(dot, colour(jstr(record, "color", "828b98")), 0);
@@ -366,6 +389,15 @@ void view_home(void) {
     lv_obj_align(lv_obj_get_child(fans, -1), LV_ALIGN_CENTER, 0, 0);
 }
 void views_refresh(void) {
+    printer_spools_refresh();
+    for (int i = 0; i < 4; i++) {
+        if (!app.cfs_dots[i])
+            continue;
+        cJSON *slot = slot_record(app.cfs_dot_slots[i]);
+        lv_color_t tint = printer_spool_colour(slot);
+        if (lv_obj_get_style_bg_color(app.cfs_dots[i], 0).full != tint.full)
+            lv_obj_set_style_bg_color(app.cfs_dots[i], tint, 0);
+    }
     char value[180];
     if (app.extrusion_temp) {
         snprintf(value, sizeof(value), "E %.0f°", N("status.extruder.temperature"));

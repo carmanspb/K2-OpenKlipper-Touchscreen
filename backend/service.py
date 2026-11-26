@@ -1889,11 +1889,16 @@ class Service:
         cfs = model.fitted(self.status)
         filename = "printer-with-cfs.png" if cfs else "printer-without-cfs.png"
         path = Path(__file__).resolve().parents[1] / "assets" / filename
-        signature = (str(path), path.stat().st_mtime)
+        base = path.with_name("printer-with-cfs-base.png")
+        if not base.exists():
+            base = path.parent / "generated" / base.name
+        layered = cfs and base.exists()
+        signature = (str(path), (base if layered else path).stat().st_mtime)
         if signature != self.artwork_key:
-            self.platform["printer_image"] = storage.prepare_image(
+            self.platform["printer_image"] = str(base) if layered else storage.prepare_image(
                 path, self.cache_path, "printer", (400, 286), lighten=True
             )
+            self.platform["printer_spools"] = layered
             self.artwork_key = signature
 
     def preload_print_preview(self, now):
@@ -2116,6 +2121,7 @@ class Service:
             "recordings",
             "timelapse",
             "printer_image",
+            "printer_spools",
             "thumbnail",
             "file_thumbnail",
             "estimated_time",
