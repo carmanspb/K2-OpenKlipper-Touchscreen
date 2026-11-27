@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "built_from_commit": "93fbcb432b6968ff36c504e639269667c8329f7d",
+  "built_from_commit": "d7ce54be058197dae2a467e303f0b33d0b670800",
   "source_inputs": {
     "touchscreen/LICENSE": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
     "touchscreen/assets/Liberation-LICENSE": "f32df582a2aab128c07b2f7e36e7b928dc5f6bd82657b905c04f91459f9e5cf9",
@@ -30,7 +30,7 @@
     "touchscreen/backend/gcode_metadata.py": "6ee21f68808fcbc36ba8bec8955268e3ab6cfe87137f736ed36f166af4a5f0ff",
     "touchscreen/backend/model.py": "e02ee38cb51feaa76f6ac143fce294e92642b587f64b8e3efac426dddcff0ced",
     "touchscreen/backend/platform_services.py": "044be63acb9241fc0f9304953493d45df85491bd6107580a2a16e113aedbc3a8",
-    "touchscreen/backend/service.py": "3d7b6427cf55a4a486a41b94b92324eb4878a553269827ce1d50a0c39d5dee7c",
+    "touchscreen/backend/service.py": "c00a016cabf9dcdd39168e2e02131f8a2e05607823e604e32b8e533ee9762c78",
     "touchscreen/backend/snapshot_codec.py": "6b41ad80d9cbdc2587bf1a2c0a3320744c1d4eb7c76f40e65038b717960ff1c0",
     "touchscreen/backend/state_updates.py": "82ed45424ff6cc2f17bc8ab709a11bf43be01b8595a0590c4deca58323503a94",
     "touchscreen/backend/static_resources.py": "e1c546f0d845de62a6b3f3ac512b2be3f6b99c07d4860287d3080d0e30fccd89",
@@ -67,10 +67,10 @@
     "VERSION": "a12a1be3f3ee06a3159f695083ad52c3f3dc2ae1f071b7aece71cfe4c1f1e133",
     "install.sh": "a18c37fe50db5b2a33c5659cccf2a7e5c5d9029bb4c28d47bbc45979eaea59ee"
   },
-  "source_fingerprint": "6437ad1f4e5b749bf19966f441ec5cf9519714bd294b292676aa4b3c320ebfac",
+  "source_fingerprint": "ee5575467467fdab25cf3ed21f95af4a21607079d953f41e22cbf29ae0861ed5",
   "target": "armv7-linux-gnueabihf",
   "files": {
-    "VERSION": "660f76e5baae6ea88b5fb1d57fecc5423d19c9164faccfd5ff8c718dd77edc91",
+    "VERSION": "c3882d3aa006ea4ef809cac88de6bc8102f85db30116a9ba34d716e6764fd526",
     "assets/activity-24.png": "9d0040919c37b7592ea3ca004f464b8ea9280ac9913c8d5e61ffcdf65caa8c22",
     "assets/arrow-big-up-28.png": "ba160bf471039cad4e702630eda547c05c26a465762931fea9dac94ddaef20ba",
     "assets/arrow-down-36.png": "c215f324f01fe17e22a598a5a15505d7581ff4009eb08753d133853eb7e0628c",
