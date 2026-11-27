@@ -1,0 +1,281 @@
+name: Prepare and validate PR package
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request number targeting main
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: package-pr-${{ inputs.pr_number }}
+  cancel-in-progress: true
+
+env:
+  INTEGRATION_REF: a382595d8f6f4c9f88220ba50354767fae9f2fac
+
+jobs:
+  metadata:
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      active: ${{ steps.pr.outputs.active }}
+      number: ${{ steps.pr.outputs.number }}
+      head: ${{ steps.pr.outputs.head }}
+      base: ${{ steps.pr.outputs.base }}
+      branch: ${{ steps.pr.outputs.branch }}
+      same_repo: ${{ steps.pr.outputs.same_repo }}
+    steps:
+      - id: pr
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          PR_NUMBER: ${{ inputs.pr_number }}
+        with:
+          script: |
+            if (!/^[1-9][0-9]*$/.test(process.env.PR_NUMBER)) throw new Error('Invalid PR number');
+            const { data: pr } = await github.rest.pulls.get({ ...context.repo, pull_number: Number(process.env.PR_NUMBER) });
+            const active = pr.state === 'open' && pr.base.ref === 'main' && !pr.draft;
+            core.setOutput('active', active);
+            core.setOutput('number', pr.number);
+            core.setOutput('head', pr.head.sha);
+            core.setOutput('base', pr.base.sha);
+            core.setOutput('branch', pr.head.ref);
+            core.setOutput('same_repo', pr.head.repo?.full_name === `${context.repo.owner}/${context.repo.repo}`);
+
+  build:
+    name: Build and test prepared PR source
+    needs: metadata
+    if: needs.metadata.outputs.active == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      source_sha: ${{ steps.prepare.outputs.sha }}
+      package_changed: ${{ steps.package.outputs.changed }}
+    steps:
+      - name: Check out trusted workflow tooling
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: automation
+          persist-credentials: false
+      - name: Check out the PR head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: refs/pull/${{ needs.metadata.outputs.number }}/head
+          fetch-depth: 0
+          path: component
+          persist-credentials: false
+      - name: Prepare the merge with main
+        id: prepare
+        env:
+          PR_HEAD: ${{ needs.metadata.outputs.head }}
+          BASE_SHA: ${{ needs.metadata.outputs.base }}
+        run: |
+          python3 automation/developer-tools/ci_prepare_package.py prepare \
+            --repo component --head "$PR_HEAD" --base "$BASE_SHA"
+      - name: Check out pinned installer context
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: carmanspb/K2-OpenKlipper
+          ref: ${{ env.INTEGRATION_REF }}
+          path: integration
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Cache this PR’s tested native builds and assets
+        if: needs.metadata.outputs.same_repo == 'true'
+        id: native-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            component/out
+            component/assets/generated
+          key: pr-${{ needs.metadata.outputs.number }}-ubuntu24-x64-v1-${{ hashFiles('component/src/**', 'component/backend/**', 'component/build/**', 'component/assets/**', 'component/features/**', 'component/runtime/**', 'component/installation/**', 'component/developer-tools/**', 'component/tests/**') }}
+      - name: Install build and test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            build-essential cmake gcc-arm-linux-gnueabihf libc6-dev-armhf-cross \
+            imagemagick libx11-dev clang-format
+          python -m pip install pillow cffi
+      - name: Generate assets on a native cache miss
+        if: steps.native-cache.outputs.cache-hit != 'true'
+        working-directory: component
+        run: |
+          npm ci --ignore-scripts --prefix developer-tools
+          python developer-tools/build_assets.py --dependencies developer-tools
+          mogrify -define png:exclude-chunks=date,time assets/generated/*.png
+      - name: Check formatting and build the host simulator
+        working-directory: component
+        run: |
+          sh developer-tools/format.sh --check
+          cmake -S build -B out/host -DCMAKE_BUILD_TYPE=Release
+          cmake --build out/host --parallel 4
+      - name: Run regression and feature tests
+        working-directory: component
+        run: |
+          ln -s integration/install.sh ../install.sh
+          python -m unittest discover -s tests -v
+          PYTHONPATH="$PWD/backend:$PWD/tests" \
+            python -m unittest discover -s features/cartographer-toggle/tests -v
+      - name: Rebuild the package only when stale
+        id: package
+        working-directory: component
+        run: |
+          if ! python installation/validate_package.py --source . \
+              --package precompiled/armv7 --integration-root ../integration; then
+            cmake -S build -B out/arm -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_TOOLCHAIN_FILE="$PWD/build/arm-linux.cmake"
+            cmake --build out/arm --parallel 4
+            python developer-tools/package_arm.py --build out/arm --integration-root ../integration
+          fi
+          python installation/validate_package.py --source . \
+            --package precompiled/armv7 --integration-root ../integration
+          git diff --exit-code -- . ':!precompiled/armv7'
+          if git diff --quiet -- precompiled/armv7; then
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+          else
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Upload validated package data
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: validated-arm-package
+          path: component/precompiled/armv7
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Update the same PR branch
+    needs: [metadata, build]
+    if: needs.metadata.outputs.same_repo == 'true'
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: read
+      actions: write
+    outputs:
+      changed: ${{ steps.push.outputs.changed }}
+      sha: ${{ steps.install.outputs.sha }}
+    steps:
+      - name: Check out trusted publication tooling
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: automation
+          persist-credentials: false
+      - name: Check out the expected PR head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.metadata.outputs.head }}
+          path: component
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Recreate the exact tested merge
+        env:
+          PR_HEAD: ${{ needs.metadata.outputs.head }}
+          BASE_SHA: ${{ needs.metadata.outputs.base }}
+          TESTED_SOURCE: ${{ needs.build.outputs.source_sha }}
+        run: |
+          actual=$(python3 automation/developer-tools/ci_prepare_package.py prepare \
+            --repo component --head "$PR_HEAD" --base "$BASE_SHA")
+          test "$actual" = "$TESTED_SOURCE"
+      - name: Check out matching installer context
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: carmanspb/K2-OpenKlipper
+          ref: ${{ env.INTEGRATION_REF }}
+          path: integration
+          persist-credentials: false
+      - name: Download package data
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: validated-arm-package
+          path: package-artifact
+      - name: Validate and commit only the generated package
+        id: install
+        run: |
+          python3 automation/developer-tools/ci_prepare_package.py install \
+            --repo component --package package-artifact --integration-root integration
+      - name: Push only if main and the PR have not moved
+        id: push
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ needs.metadata.outputs.number }}
+          PR_HEAD: ${{ needs.metadata.outputs.head }}
+          PR_BRANCH: ${{ needs.metadata.outputs.branch }}
+          BASE_SHA: ${{ needs.metadata.outputs.base }}
+        working-directory: component
+        run: |
+          test "$(gh api "repos/$GH_REPO/pulls/$PR_NUMBER" --jq 'select(.state == "open" and .base.ref == "main" and .draft == false) | .head.sha')" = "$PR_HEAD"
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$BASE_SHA"
+          git check-ref-format "refs/heads/$PR_BRANCH"
+          test "$(git ls-remote origin "refs/heads/$PR_BRANCH" | cut -f1)" = "$PR_HEAD"
+          if [ "$(git rev-parse HEAD)" = "$PR_HEAD" ]; then
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+          else
+            # A normal fast-forward push rejects any intervening branch edit.
+            git -c credential.helper='!gh auth git-credential' push origin "HEAD:refs/heads/$PR_BRANCH"
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Validate the final bot commit in a fresh run
+        if: steps.push.outputs.changed == 'true'
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          PR_NUMBER: ${{ needs.metadata.outputs.number }}
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              ...context.repo, workflow_id: 'arm-package.yml', ref: 'main',
+              inputs: { pr_number: process.env.PR_NUMBER }
+            });
+
+  report:
+    name: Report the exact validated head
+    needs: [metadata, build, publish]
+    if: always() && needs.metadata.outputs.active == 'true'
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: write
+    steps:
+      - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          PR_NUMBER: ${{ needs.metadata.outputs.number }}
+          EXPECTED_HEAD: ${{ needs.metadata.outputs.head }}
+          EXPECTED_BASE: ${{ needs.metadata.outputs.base }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          PUBLISH_RESULT: ${{ needs.publish.result }}
+          CHANGED: ${{ needs.publish.outputs.changed }}
+          SAME_REPO: ${{ needs.metadata.outputs.same_repo }}
+          SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
+          PACKAGE_CHANGED: ${{ needs.build.outputs.package_changed }}
+        with:
+          script: |
+            const { data: pr } = await github.rest.pulls.get({ ...context.repo, pull_number: Number(process.env.PR_NUMBER) });
+            if (pr.state !== 'open' || pr.head.sha !== process.env.EXPECTED_HEAD || pr.base.sha !== process.env.EXPECTED_BASE) return;
+            const branchIsFinal = process.env.SAME_REPO === 'true'
+              ? process.env.PUBLISH_RESULT === 'success' && process.env.CHANGED === 'false'
+              : process.env.SOURCE_SHA === pr.head.sha && process.env.PACKAGE_CHANGED === 'false';
+            const success = process.env.BUILD_RESULT === 'success' && branchIsFinal;
+            await github.rest.repos.createCommitStatus({
+              ...context.repo, sha: pr.head.sha, context: 'touchscreen/package',
+              state: success ? 'success' : 'failure',
+              description: success ? 'Current main, tests and package validated on this exact commit' : 'PR needs a source/package update or validation failed',
+              target_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+            });
