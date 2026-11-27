@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "built_from_commit": "40466f3a3a9694b7a1c65085a218fad7a31b84cb",
+  "built_from_commit": "e5b792c9912fb3ff69f9a54f6ce26ff46bd9ac0c",
   "source_inputs": {
     "touchscreen/LICENSE": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
     "touchscreen/assets/Liberation-LICENSE": "f32df582a2aab128c07b2f7e36e7b928dc5f6bd82657b905c04f91459f9e5cf9",
@@ -54,7 +54,7 @@
     "touchscreen/runtime/start.sh": "ec5236d965d3167cccb024f8fc289b437933f48a71d1d9ca626766c2d6191445",
     "touchscreen/src/json.c": "633ca0a11d6296422daf1063e737d1ef042148b241858f76a78df0a757a1f898",
     "touchscreen/src/main.c": "27cd06e3f9a43619c9209d328e4db5d5d12348e20f94970db85c50971f7c7cb4",
-    "touchscreen/src/mesh.c": "30b2e7049f2982d035ddbef85b568ba1c5fa9858d73ad0eae8d55cd514ef1f2f",
+    "touchscreen/src/mesh.c": "24685016f8b800dfd6d6ae52060c1aeb5dd42c451e48fafef5e812a018386f8a",
     "touchscreen/src/platform.c": "69830b116b3e4078e4ac4a556e8bfc7ec5ebedc41279d697412f89d092fe7e0d",
     "touchscreen/src/printer_art.c": "4e266041be9b05fb73d65fa648e694688eda89da4ad9c15f5ee469cc1df706e5",
     "touchscreen/src/screen.h": "ee85fdc2d75e9ec8d4c885cf32023081d8d69dbf0be85f0cf9f5356719993ea9",
@@ -64,10 +64,10 @@
     "VERSION": "a12a1be3f3ee06a3159f695083ad52c3f3dc2ae1f071b7aece71cfe4c1f1e133",
     "install.sh": "a18c37fe50db5b2a33c5659cccf2a7e5c5d9029bb4c28d47bbc45979eaea59ee"
   },
-  "source_fingerprint": "61112866848724a6aa6c147d2be4c45b1c32eea99b5a96836cc7388591652381",
+  "source_fingerprint": "bf1b47834d7d7d835a458e30d97a496d2fc90149bff2dab41a942896e3f1abb4",
   "target": "armv7-linux-gnueabihf",
   "files": {
-    "VERSION": "2451c9039a3b6f0674470b2e2d15865b5a66c543c7d2740cc65dc8b448966e41",
+    "VERSION": "e28c7e07ef68e44c30b50422e6a6d591b2050f40164709b26e720a2161a3112a",
     "assets/activity-24.png": "9d0040919c37b7592ea3ca004f464b8ea9280ac9913c8d5e61ffcdf65caa8c22",
     "assets/arrow-big-up-28.png": "ba160bf471039cad4e702630eda547c05c26a465762931fea9dac94ddaef20ba",
     "assets/arrow-down-36.png": "c215f324f01fe17e22a598a5a15505d7581ff4009eb08753d133853eb7e0628c",
@@ -147,6 +147,6 @@
     "licenses/Noto-LICENSE": "075f91382875da1c4b491f1facf2586f55448705133264d98ce15cab6211b125",
     "licenses/Touchscreen-LICENSE": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
     "licenses/cJSON-LICENSE": "a36dda207c36db5818729c54e7ad4e8b0c6fba847491ba64f372c1a2037b6d5c",
-    "openklipper-screen": "00d6e448fedb01a3c2a3ddc1295da1418ae339601b2a1cf586affda9145bd510"
+    "openklipper-screen": "860ef4a8c95e618deb85c43c86b2a5367929c9b8e0731a0fe3a1d6dcef72ccca"
   }
 }
