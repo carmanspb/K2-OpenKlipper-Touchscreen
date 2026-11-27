@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 @unittest.skipUnless(shutil.which("node"), "Node.js is required to exercise workflow JavaScript")
 class StatusReportingTests(unittest.TestCase):
-    def report(self, build="success", publish="success", *, changed="false", moved=False):
+    def report(self, build="success", publish="success", *, changed="false", moved=False, stale_pr_base=False, main_moved=False):
         workflow = (ROOT / ".github/workflows/arm-package.yml").read_text()
         report_job = workflow.split("\n  report:\n", 1)[1]
         script = textwrap.dedent(report_job.split("          script: |\n", 1)[1])
@@ -23,7 +23,8 @@ class StatusReportingTests(unittest.TestCase):
                     "BUILD_RESULT": build, "PUBLISH_RESULT": publish,
                     "CHANGED": changed, "SAME_REPO": "true"},
             "pr": {"state": "open", "head": {"sha": "c" * 40 if moved else head},
-                   "base": {"sha": base}},
+                   "base": {"sha": "c" * 40 if stale_pr_base else base}},
+            "main": "c" * 40 if main_moved else base,
         }
         harness = r'''
 const fs = require('node:fs');
@@ -32,6 +33,7 @@ Object.assign(process.env, input.env);
 const statuses = [];
 const github = {rest: {
   pulls: {get: async () => ({data: input.pr})},
+  git: {getRef: async () => ({data: {object: {sha: input.main}}})},
   repos: {createCommitStatus: async status => statuses.push(status)}
 }};
 const context = {repo: {owner: 'owner', repo: 'repo'}, serverUrl: 'https://github.com', runId: 123};
@@ -63,3 +65,11 @@ new AsyncFunction('github', 'context', input.script)(github, context)
 
     def test_replaced_head_is_not_updated(self):
         self.assertEqual(self.report(moved=True), [])
+
+    def test_stale_pr_base_does_not_block_validated_live_main(self):
+        statuses = self.report(stale_pr_base=True)
+        self.assertEqual(len(statuses), 1)
+        self.assertEqual(statuses[0]["state"], "success")
+
+    def test_real_main_advance_suppresses_stale_report(self):
+        self.assertEqual(self.report(main_moved=True), [])
