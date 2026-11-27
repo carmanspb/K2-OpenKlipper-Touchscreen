@@ -26,41 +26,49 @@ assume this component is integrated into K2 OpenKlipper's `touchscreen/` folder.
 - Preserve homing, temperature and operation safety checks.
 - Add regression tests for state handling and backend behavior changes.
 - Run the relevant tests, formatting checks and package validation. Refresh the
-  precompiled package when changing build or runtime inputs, or use the automatic
-  post-merge refresh described below.
+  precompiled package when changing build or runtime inputs, or let the PR
+  preparation workflow refresh it before merging.
 - Describe simulator/automated checks separately from live printer testing.
   Do not run new motion, heater, cutter or CFS behavior unattended.
 - Do not include credentials, personal printer configuration, identifying logs
   or proprietary firmware binaries.
 
-## Automatic packages after merging
+## Package validation before merging
 
-`Build merged touchscreen package` runs on `main` after source, test, build or
-workflow changes land, and can also be started with **Run workflow**. It builds
-the host simulator, runs the regression and Cartographer suites, checks C
-formatting, cross-compiles the ARM executable and validates the installer bundle.
-The installer context is pinned to a reviewed K2-OpenKlipper commit in the
-workflow; update that pin when changing the core installer/version context.
+`Request PR package validation` dispatches validation when a PR changes or main
+advances. Its `pull_request_target` job handles GitHub metadata only; it never
+checks out PR code. The dispatched workflow is always loaded from main.
 
-Every successful run uploads `touchscreen-armv7-<source commit>` as a downloadable
-artifact. The tarball preserves the executable permission required by the
-installer. A separate write job opens or updates a single
-`automation/arm-package` PR containing only `precompiled/armv7/`. Merge that PR to
-update the bundle shipped from this repository. Package-only merges do not
-trigger another build. Newer main builds replace older pending package updates.
-This keeps all changes to main behind the repository's PR review rule.
+`Prepare and validate PR package` merges the current main into the PR branch,
+resolves only generated-package conflicts, runs formatting and both test suites,
+and rebuilds the package when its source fingerprints are stale. Source conflicts
+stop the run for manual resolution. Successful preparation commits the main sync
+and package update to the same PR branch. It never opens a binary-only PR,
+approves a PR, merges a PR or pushes directly to main.
 
-Enable **Settings → Actions → General → Workflow permissions → Allow GitHub
-Actions to create and approve pull requests** for the automatic package PR.
-The workflow never approves or merges its own PR. It records the
-`touchscreen/package` status on the generated commit because commits made with
-`GITHUB_TOKEN` do not trigger a second PR workflow. Any other required checks
-still apply; a GitHub App token would be needed to trigger those automatically.
+The build job runs on `ubuntu-24.04` with four parallel compile jobs and a
+15-minute timeout. Small metadata, publishing and status jobs use `ubuntu-slim`
+with five-minute timeouts. Slim lacks the required native build toolchain and
+has a hard 15-minute job limit. Caches are isolated by PR and the tested source
+inputs; fork builds cannot populate them. Cached builds/assets speed up repeated
+validation of the same source. The installer context is pinned in the workflow.
 
-Source PRs may omit a manual bundle rebuild when this automation will refresh it
-after merging. Between the source merge and the package-refresh PR merge, the
-tracked bundle may be stale and installer validation will reject it. Use the
-validated workflow artifact during that interval, or merge the refresh PR before
-installing directly from main. If several source PRs land in sequence, use the
-refresh PR from the latest successful main build so the package includes all of
-them. The workflow does not write to a source PR or resolve source conflicts.
+Only the build job executes PR code, with a read-only token. The separate write
+job uses helper/validator code from the trusted workflow checkout to reproduce the
+exact tested merge and install validated package data. It rejects unexpected
+artifact files and stale branch/main snapshots. There are no App keys or PATs;
+updates use `GITHUB_TOKEN` with job-specific permissions.
+
+A token-generated commit does not trigger ordinary PR workflows, so the updater
+explicitly dispatches a fresh run. Only a successful run that makes no further
+branch/package changes reports `touchscreen/package` success on that exact head.
+Dispatched workflow job checks are not themselves used as the merge gate: the
+workflow publishes an explicit commit status. Main advancing triggers another
+preparation pass; required branch freshness prevents merging the old result.
+
+Configure the main ruleset to require `touchscreen/package` and require branches
+to be up to date. Keep the existing review and PR-only rules. Merge this workflow
+PR first to activate dispatch from main; use **Run workflow** to retry or prepare
+a particular PR. Forks receive read-only validation and an artifact; their author
+must commit any necessary main sync or package updates before the gate passes.
+No setting allowing Actions to create or approve pull requests is needed.
