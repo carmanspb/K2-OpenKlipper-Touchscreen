@@ -598,6 +598,8 @@ def preview_case(name):
         data["availability"] = action_policy.availability(
             data["status"], data["connected"], []
         )
+    if "software" in recipe:
+        data["platform"]["software"] = recipe["software"]
     data["preview"] = {
         "case": name,
         "description": recipe["description"],

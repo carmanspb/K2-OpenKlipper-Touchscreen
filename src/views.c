@@ -1728,9 +1728,68 @@ static void usb_view(void) {
     row(app.content, 90 + SETTINGS_ROW_PITCH, "Available space", S("platform.usb_free"), "", NULL);
     footer("Eject USB", "{\"action\":\"usb_eject\"}", "Format USB…", "usb_format");
 }
+/* Components come from a registry, not hard-coded per-repository pages. */
+static cJSON *software_component(const char *id) {
+    cJSON *component;
+    cJSON_ArrayForEach(component,
+                       J("platform.software.components")) if (!strcmp(jstr(component, "id", ""),
+                                                                      id)) return component;
+    return NULL;
+}
+static bool software_updates_available(void) {
+    cJSON *component;
+    cJSON_ArrayForEach(component,
+                       J("platform.software.components")) if (jbool(component, "update_available",
+                                                                    false)) return true;
+    return false;
+}
+static void software_view(void) {
+    bool enabled = B("platform.software.automatic");
+    toggle_card(80, SETTINGS_ROW_HEIGHT, "Automatic updates", NULL, enabled,
+                app.fixture && has("platform.software") ? "software_automatic" : NULL);
+    lv_obj_t *list = scroll_area(172, 464);
+    int y = 0;
+    cJSON *component;
+    cJSON_ArrayForEach(component, J("platform.software.components")) {
+        char action[96], detail[180];
+        snprintf(action, sizeof(action), "route:software_detail:%s", jstr(component, "id", ""));
+        snprintf(detail, sizeof(detail), "%s", jstr(component, "installed_version", "Unknown"));
+        row(list, y, jstr(component, "name", "Software"), "›", detail, action);
+        if (jbool(component, "update_available", false))
+            icon(list, "circle-arrow-up", 584, y + 25, 28, app.accent);
+        y += SETTINGS_ROW_PITCH;
+    }
+    if (!y) {
+        row(list, 0, "K2 OpenKlipper", "",
+            *S("platform.version") ? S("platform.version") : "Unknown", NULL);
+        row(list, SETTINGS_ROW_PITCH, "Touchscreen", "",
+            *S("platform.screen_version") ? S("platform.screen_version") : "Development", NULL);
+    }
+}
+static void software_detail_view(const char *id) {
+    cJSON *component = software_component(id);
+    if (!component) {
+        center_message("Software unavailable", "Return to Software and check again.", NULL, NULL);
+        return;
+    }
+    bool available = jbool(component, "update_available", false);
+    bool busy = app.printing || app.paused || cJSON_GetArraySize(J("operations")) > 0;
+    lv_obj_t *list = scroll_area(80, 384);
+    row(list, 0, "Installed version", jstr(component, "installed_version", "Unknown"), "", NULL);
+    row(list, SETTINGS_ROW_PITCH, "Release date",
+        jstr(component, "installed_release_date", "Unknown"), "", NULL);
+    text(list, jstr(component, "description", ""), 16, 2 * SETTINGS_ROW_PITCH + 12, 640,
+         &font_ui_18, true);
+    text(list, busy ? "Available when the printer is idle." : jstr(component, "status", ""), 16,
+         2 * SETTINGS_ROW_PITCH + 70, 640, &font_ui_18, true);
+    char action[96];
+    snprintf(action, sizeof(action), "software_%s:%.31s", available ? "install" : "check", id);
+    footer(NULL, NULL, available ? "Install update" : "Check for updates",
+           app.fixture && !busy && jbool(component, "can_update", false) ? action : NULL);
+}
 static void system_view(void) {
     ui_tabs(true, "system");
-    const char *labels[] = {"Machine information", "Software version", "Time zone", "Help & logs",
+    const char *labels[] = {"Machine information", "Software", "Time zone", "Help & logs",
                             "Restart"};
     const char *routes[] = {"machine", "software", "timezone", "help", "restart"};
     int width = (674 - SETTINGS_CARD_GAP) / 2;
@@ -1744,6 +1803,8 @@ static void system_view(void) {
         lv_obj_t *label = text(card, labels[i], 16, 38, 262, &font_ui_20, false);
         lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
         lv_obj_set_height(label, 28);
+        if (i == 1 && software_updates_available())
+            icon(card, "circle-arrow-up", width - 72, 36, 28, app.accent);
         icon(card, "chevron-right", width - 34, 36, 28, colour("a4aebb"));
     }
 }
@@ -2053,7 +2114,9 @@ void views_render(void) {
     else if (!strcmp(p, "machine"))
         title = "Machine information";
     else if (!strcmp(p, "software"))
-        title = "Software version";
+        title = "Software";
+    else if (!strncmp(p, "software_detail:", 16))
+        title = jstr(software_component(p + 16), "name", "Software");
     else if (!strcmp(p, "timezone"))
         title = "Time zone";
     else if (!strcmp(p, "restart"))
@@ -2150,11 +2213,9 @@ void views_render(void) {
         row(app.content, 90, "Restart Klipper", "›", "", "restart:klipper");
         row(app.content, 90 + SETTINGS_ROW_PITCH, "Firmware restart", "›", "", "restart:firmware");
     } else if (!strcmp(p, "software")) {
-        row(app.content, 90, "OpenKlipper",
-            *S("platform.version") ? S("platform.version") : "Installed custom fork", "", NULL);
-        row(app.content, 90 + SETTINGS_ROW_PITCH, "Touchscreen", "Native LVGL", "", NULL);
-        row(app.content, 90 + 2 * SETTINGS_ROW_PITCH, "Build",
-            *S("platform.screen_version") ? S("platform.screen_version") : "Development", "", NULL);
+        software_view();
+    } else if (!strncmp(p, "software_detail:", 16)) {
+        software_detail_view(p + 16);
     } else if (!strcmp(p, "language")) {
         row(app.content, 90, "Language", "English", "", NULL);
     } else if (!strcmp(p, "help")) {
@@ -2440,6 +2501,46 @@ bool views_control_key(const char *action, char *key, size_t size) {
     return false;
 }
 void views_action(const char *a) {
+    if (!strcmp(a, "software_automatic")) {
+        if (app.fixture) {
+            cJSON *software = J("platform.software");
+            bool enabled = jbool(software, "automatic", false);
+            cJSON_DeleteItemFromObjectCaseSensitive(software, "automatic");
+            cJSON_AddBoolToObject(software, "automatic", !enabled);
+            app.dirty = true;
+        }
+        return;
+    }
+    if (!strncmp(a, "software_check:", 15) || !strncmp(a, "software_install:", 17)) {
+        if (!app.fixture || app.printing || app.paused || cJSON_GetArraySize(J("operations")))
+            return;
+        bool install = !strncmp(a, "software_install:", 17);
+        const char *id = a + (install ? 17 : 15);
+        cJSON *component = software_component(id);
+        if (!component || !jbool(component, "can_update", false))
+            return;
+        if (install) {
+            cJSON *r = request("software_install_preview");
+            cJSON_AddStringToObject(r, "component", id);
+            char notes[1024];
+            snprintf(notes, sizeof(notes),
+                     "%s %s\nReleased %s\n\n%s\n\nThe touchscreen will restart.",
+                     jstr(component, "name", "Software"), jstr(component, "release_version", ""),
+                     jstr(component, "release_date", "Unknown"), jstr(component, "summary", ""));
+            confirmed(notes, r);
+        } else {
+            cJSON_DeleteItemFromObjectCaseSensitive(component, "update_available");
+            cJSON_AddBoolToObject(component, "update_available",
+                                  jbool(component, "candidate_available", false));
+            cJSON_DeleteItemFromObjectCaseSensitive(component, "status");
+            cJSON_AddStringToObject(component, "status",
+                                    jbool(component, "candidate_available", false)
+                                        ? "Compatible update available."
+                                        : "Up to date. Last checked: Just now.");
+            app.dirty = true;
+        }
+        return;
+    }
     if (cartographer_action(a))
         return;
     if (mesh_action(a))

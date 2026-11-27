@@ -66,7 +66,8 @@ bool ui_view_changed(const cJSON *previous, const cJSON *current) {
             return true;
     bool found = false;
     for (unsigned i = 0; i < sizeof(views) / sizeof(views[0]); i++) {
-        if (!contains(views[i].routes, app.route))
+        if (!contains(views[i].routes,
+                      !strncmp(app.route, "software_detail:", 16) ? "software" : app.route))
             continue;
         found = true;
         for (unsigned n = 0; n < 12 && views[i].inputs[n]; n++) {

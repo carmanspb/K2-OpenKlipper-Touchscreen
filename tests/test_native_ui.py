@@ -921,4 +921,43 @@ class NativeUI(unittest.TestCase):
   items,_=self.render(data=waiting,actions=['route:tune',{'advance_ms':180},'route:home'])
   self.assertTrue(any(i['action']=='route:objects' for i in items))
 
+
+ def software_data(self,case='software-updates'):
+  data=copy.deepcopy(self.data)
+  recipe=json.loads((ROOT/'developer-tools/fixtures/cases'/f'{case}.json').read_text())
+  data['platform']['software']=recipe['software']
+  return data
+
+ def test_software_check_changes_to_install_and_install_requires_confirmation(self):
+  data=self.software_data('software-check')
+  page='software_detail:touchscreen'
+  items,commands=self.render(page,data=data)
+  self.assertTrue(any(i['action']=='software_check:touchscreen' for i in items))
+  items,commands=self.render(page,actions=['software_check:touchscreen'],data=data)
+  self.assertTrue(any(i['action']=='software_install:touchscreen' for i in items))
+  self.assertEqual(commands,[])
+  items,commands=self.render(page,actions=['software_check:touchscreen','software_install:touchscreen'],data=data)
+  self.assertTrue(any(i['action']=='confirmed' for i in items))
+  self.assertEqual(commands,[])
+  items,commands=self.render(page,actions=['software_check:touchscreen','software_install:touchscreen','confirmed'],data=data)
+  self.assertTrue(any(i['action']=='software_check:touchscreen' for i in items))
+  self.assertEqual([c['action'] for c in commands],['software_install_preview'])
+
+ def test_software_install_is_blocked_when_printing_paused_or_busy(self):
+  for state,operations in [('printing',[]),('paused',[]),('standby',[{'action':'home'}])]:
+   data=self.software_data();data['status']['print_stats']['state']=state;data['operations']=operations
+   items,commands=self.render('software_detail:touchscreen',actions=['software_install:touchscreen','confirmed'],data=data)
+   self.assertFalse(any(i['action']=='software_install:touchscreen' and not i.get('disabled',False) for i in items))
+   self.assertFalse(any(c['action']=='software_install_preview' for c in commands))
+
+ def test_software_registry_builds_component_routes_and_toggle(self):
+  data=self.software_data()
+  data['platform']['software']['components'].append({'id':'addon','name':'Optional add-on','installed_version':'1.0','can_update':False})
+  items,commands=self.render('software',actions=['software_automatic'],data=data)
+  actions={i['action'] for i in items}
+  self.assertIn('route:software_detail:addon',actions)
+  self.assertIn('route:software_detail:touchscreen',actions)
+  self.assertIn('software_automatic',actions)
+  self.assertEqual(commands,[])
+
 if __name__=='__main__':unittest.main()

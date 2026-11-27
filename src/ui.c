@@ -498,8 +498,9 @@ void ui_confirm(const char *message, const char *command) {
             ? (!strcmp(jstr(parsed, "operation", ""), "delete")   ? "Delete mesh profile?"
                : !strcmp(jstr(parsed, "operation", ""), "rename") ? "Rename mesh profile?"
                                                                   : "Change mesh profile?")
-        : !strcmp(kind, "motors")  ? "Unlock motors?"
-        : !strcmp(kind, "restart") ? "Restart printer control?"
+        : !strcmp(kind, "software_install_preview") ? "Release notes"
+        : !strcmp(kind, "motors")                   ? "Unlock motors?"
+        : !strcmp(kind, "restart")                  ? "Restart printer control?"
         : (!strcmp(kind, "delete_file") || !strcmp(kind, "delete_recording")) ? "Delete file?"
         : !strcmp(kind, "firmware_restart") ? "Restart controller firmware?"
                                             : "Confirm";
@@ -508,7 +509,9 @@ void ui_confirm(const char *message, const char *command) {
     button(app.body, "Cancel", 24, 282, 230, 56, "close", false);
     const char *label =
         (!strcmp(kind, "delete_file") || !strcmp(kind, "delete_recording")) ? "OK" : "Continue";
-    if (!strcmp(command, "discard"))
+    if (!strcmp(kind, "software_install_preview"))
+        label = "Install";
+    else if (!strcmp(command, "discard"))
         label = "Discard changes";
     else if (!strcmp(kind, "slot_clear"))
         label = "Reset";
@@ -546,6 +549,34 @@ static void fixture_action(const char *command) {
     const char *action = jstr(request, "action", "");
     if (!strcmp(action, "mesh_profile")) {
         mesh_fixture(request);
+        cJSON_Delete(request);
+        return;
+    }
+    if (!strcmp(action, "software_install_preview") && jbool(request, "confirm", false) &&
+        !app.printing && !app.paused && !cJSON_GetArraySize(J("operations"))) {
+        cJSON *component;
+        cJSON_ArrayForEach(component, J("platform.software.components")) {
+            if (strcmp(jstr(component, "id", ""), jstr(request, "component", "")) ||
+                !jbool(component, "can_update", false) ||
+                !jbool(component, "update_available", false))
+                continue;
+            char version[80];
+            snprintf(version, sizeof(version), "%s", jstr(component, "release_version", ""));
+            cJSON_DeleteItemFromObjectCaseSensitive(component, "installed_version");
+            cJSON_AddStringToObject(component, "installed_version", version);
+            char date[80];
+            snprintf(date, sizeof(date), "%s", jstr(component, "release_date", "Unknown"));
+            cJSON_DeleteItemFromObjectCaseSensitive(component, "installed_release_date");
+            cJSON_AddStringToObject(component, "installed_release_date", date);
+            cJSON_DeleteItemFromObjectCaseSensitive(component, "update_available");
+            cJSON_AddBoolToObject(component, "update_available", false);
+            cJSON_DeleteItemFromObjectCaseSensitive(component, "candidate_available");
+            cJSON_AddBoolToObject(component, "candidate_available", false);
+            cJSON_DeleteItemFromObjectCaseSensitive(component, "status");
+            cJSON_AddStringToObject(component, "status",
+                                    "Up to date. Preview installation complete.");
+            app.dirty = true;
+        }
         cJSON_Delete(request);
         return;
     }

@@ -1,0 +1,39 @@
+{
+  "description": "Software update UI preview with example versions; no downloads or printer actions.",
+  "scenario": "idle",
+  "page": "software",
+  "printer_image": "assets/demo-printer-combo.png",
+  "actions": [],
+  "software": {
+    "automatic": false,
+    "components": [
+      {
+        "id": "openklipper",
+        "name": "K2 OpenKlipper",
+        "installed_version": "0.4.25-alpha.1",
+        "release_version": "0.4.25-alpha.1",
+        "release_date": "Not checked",
+        "update_available": false,
+        "can_update": false,
+        "summary": "Printer control and system integration.",
+        "status": "Managed by the K2 OpenKlipper installer.",
+        "installed_release_date": "20 Nov 2026",
+        "description": "Printer control and system integration."
+      },
+      {
+        "id": "touchscreen",
+        "name": "Touchscreen",
+        "installed_version": "v0.1.0",
+        "release_version": "v0.2.0",
+        "release_date": "27 Nov 2026",
+        "update_available": true,
+        "candidate_available": true,
+        "can_update": true,
+        "summary": "Saved bed mesh previews and clearer update controls.\n\nExample release information for interface review.",
+        "status": "Compatible with your K2 OpenKlipper installation.",
+        "installed_release_date": "20 Nov 2026",
+        "description": "Native interface for the built-in touchscreen."
+      }
+    ]
+  }
+}
