@@ -23,6 +23,10 @@ jobs:
       - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           script: |
+            // GitHub uses 'edited' for title/body edits as well as base changes.
+            // Only a base change alters the source that needs validation.
+            if (context.eventName === 'pull_request_target' &&
+                context.payload.action === 'edited' && !context.payload.changes?.base) return;
             const pulls = context.eventName === 'pull_request_target'
               ? [(await github.rest.pulls.get({ ...context.repo, pull_number: context.payload.pull_request.number })).data]
               : await github.paginate(github.rest.pulls.list, { ...context.repo, state: 'open', base: 'main', per_page: 100 });

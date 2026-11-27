@@ -36,7 +36,8 @@ assume this component is integrated into K2 OpenKlipper's `touchscreen/` folder.
 ## Package validation before merging
 
 `Request PR package validation` dispatches validation when a PR changes or main
-advances. Its `pull_request_target` job handles GitHub metadata only; it never
+advances. Title and description edits do not dispatch package validation; base-
+branch edits still do. Its `pull_request_target` job handles GitHub metadata only; it never
 checks out PR code. The dispatched workflow is always loaded from main.
 
 `Prepare and validate PR package` merges the current main into the PR branch,
@@ -49,7 +50,8 @@ approves a PR, merges a PR or pushes directly to main.
 The build job runs on `ubuntu-24.04` with four parallel compile jobs and a
 15-minute timeout. Small metadata, publishing and status jobs use `ubuntu-slim`
 with five-minute timeouts. Slim lacks the required native build toolchain and
-has a hard 15-minute job limit. Caches are isolated by PR and the tested source
+has a hard 15-minute job limit. ImageMagick 6 requires `librsvg2-bin` for SVG
+rasterization on Ubuntu 24.04. Caches are isolated by PR and the tested source
 inputs; fork builds cannot populate them. Cached builds/assets speed up repeated
 validation of the same source. The installer context is pinned in the workflow.
 
@@ -65,6 +67,10 @@ branch/package changes reports `touchscreen/package` success on that exact head.
 Dispatched workflow job checks are not themselves used as the merge gate: the
 workflow publishes an explicit commit status. Main advancing triggers another
 preparation pass; required branch freshness prevents merging the old result.
+Runs for the same PR are serialized so a follow-up cannot cancel its publishing
+parent. Stale-head/main checks still prevent outdated runs from pushing or
+reporting success. Cancelled attempts leave the status to their replacement run
+and do not report a source/package failure.
 
 Configure the main ruleset to require `touchscreen/package` and require branches
 to be up to date. Keep the existing review and PR-only rules. Merge this workflow
