@@ -1182,7 +1182,7 @@ class Service:
                     raise ValueError("A mesh profile with that name already exists")
                 mesh = status.get("bed_mesh", {})
                 current = mesh.get("profile_name", "")
-                if not current and mesh.get("probed_matrix"):
+                if not current and any(mesh.get("probed_matrix") or []):
                     raise ValueError(
                         "Cannot rename another profile while the current mesh is unsaved"
                     )
