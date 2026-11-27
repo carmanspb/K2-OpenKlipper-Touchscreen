@@ -107,7 +107,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y \
             build-essential cmake gcc-arm-linux-gnueabihf libc6-dev-armhf-cross \
-            imagemagick libx11-dev clang-format
+            imagemagick librsvg2-bin libx11-dev clang-format
           python -m pip install pillow cffi
       - name: Generate assets on a native cache miss
         if: steps.native-cache.outputs.cache-hit != 'true'
@@ -267,6 +267,9 @@ jobs:
           PACKAGE_CHANGED: ${{ needs.build.outputs.package_changed }}
         with:
           script: |
+            // Cancellation means a replacement run or a user stopped this
+            // attempt; it is not evidence of a source/package failure.
+            if (process.env.BUILD_RESULT === 'cancelled' || process.env.PUBLISH_RESULT === 'cancelled') return;
             const { data: pr } = await github.rest.pulls.get({ ...context.repo, pull_number: Number(process.env.PR_NUMBER) });
             if (pr.state !== 'open' || pr.head.sha !== process.env.EXPECTED_HEAD || pr.base.sha !== process.env.EXPECTED_BASE) return;
             const branchIsFinal = process.env.SAME_REPO === 'true'
