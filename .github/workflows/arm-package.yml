@@ -121,7 +121,6 @@ jobs:
         run: |
           npm ci --ignore-scripts --prefix developer-tools
           python developer-tools/build_assets.py --dependencies developer-tools
-          mogrify -define png:exclude-chunks=date,time assets/generated/*.png
       - name: Check formatting and build the host simulator
         working-directory: component
         run: |

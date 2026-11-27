@@ -42,7 +42,9 @@ checks out PR code. The dispatched workflow is always loaded from main.
 
 `Prepare and validate PR package` merges the current main into the PR branch,
 resolves only generated-package conflicts, runs formatting and both test suites,
-and rebuilds the package when its source fingerprints are stale. Source conflicts
+and rebuilds the package when its source fingerprints are stale. Packaging strips
+PNG build timestamps without re-encoding pixels, so unchanged images remain
+byte-identical across PRs. Source conflicts
 stop the run for manual resolution. Successful preparation commits the main sync
 and package update to the same PR branch. It never opens a binary-only PR,
 approves a PR, merges a PR or pushes directly to main.
