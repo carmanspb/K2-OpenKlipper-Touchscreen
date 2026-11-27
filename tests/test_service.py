@@ -5,6 +5,7 @@ import time
 from pathlib import Path
 import sys
 import tempfile
+import threading
 import unittest
 from unittest import mock
 
@@ -521,22 +522,164 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(snap["settings"]["extruder"]["max_temp"], 350)
         self.assertTrue(self.s.settings_refresh_needed)
 
-    def test_screen_restart_never_replays_printer_preferences(self):
-        for state in ("standby", "printing", "paused"):
-            with self.subTest(state=state):
-                self.state["print_stats"]["state"] = state
-                self.s.stream_connected = True
-                self.s.prefs.update(idle=1800, light_off=300, cfs_auto_refill=True)
-                self.s.preference = mock.Mock()
-                self.s.update_screen_idle = mock.Mock()
-                self.s.preload_files = mock.Mock()
-                self.s.refresh_platform = mock.Mock()
-                self.s.read_policy.update = mock.Mock()
-                with mock.patch("service.time.sleep", side_effect=StopIteration):
-                    with self.assertRaises(StopIteration):
-                        self.s.poll()
-                self.s.preference.assert_not_called()
+    def configure_saved_timers(self):
+        self.s.prefs.update(idle=900, light_off=300, cfs_auto_refill=True)
+        self.s.settings.update({
+            "gcode_macro _light_idle": {"variable_off_after": 0},
+            "idle_timeout": {"timeout": 1800},
+        })
+        self.s.settings_refresh_needed = False
+
+    def test_startup_restores_only_saved_timers_once(self):
+        self.configure_saved_timers()
+        self.s.restore_timer_preferences()
+        self.mr.run_gcode.assert_called_once_with(
+            "SET_GCODE_VARIABLE MACRO=_LIGHT_IDLE VARIABLE=off_after VALUE=300\n"
+            "_LIGHT_IDLE\nSET_IDLE_TIMEOUT TIMEOUT=900"
+        )
+        self.s.restore_timer_preferences()
+        self.mr.run_gcode.assert_called_once()
+        # A fresh subscription on the same Klipper boot is not a restart.
+        self.s.merge_status(self.state, 101, full=True, new_epoch=True)
+        self.s.settings_refresh_needed = False
+        self.s.restore_timer_preferences()
+        self.mr.run_gcode.assert_called_once()
+
+    def test_timer_restore_waits_for_ready_idle_and_fresh_settings(self):
+        for guard in ("disconnected", "not_ready", "printing", "paused", "settings", "operation"):
+            with self.subTest(guard=guard):
+                self.configure_saved_timers()
+                self.s.timer_preferences_pending = True
+                self.s.connected = guard != "disconnected"
+                self.s.status["webhooks"]["state"] = "startup" if guard == "not_ready" else "ready"
+                self.s.status["print_stats"]["state"] = guard if guard in ("printing", "paused") else "standby"
+                self.s.settings_refresh_needed = guard == "settings"
+                self.s.operations = {"test": {"id": "test", "resources": ["motion"]}} if guard == "operation" else {}
+                self.s.restore_timer_preferences()
                 self.mr.run_gcode.assert_not_called()
+                self.assertTrue(self.s.timer_preferences_pending)
+        self.s.operations = {}
+        self.s.restore_timer_preferences()
+        self.mr.run_gcode.assert_called_once()
+
+    def test_timer_restore_keeps_screen_responsive_while_moonraker_waits(self):
+        self.configure_saved_timers()
+        entered, release, snapshot_done = threading.Event(), threading.Event(), threading.Event()
+        errors = []
+
+        def blocked_gcode(command):
+            entered.set()
+            if not release.wait(5):
+                raise TimeoutError("test did not release Moonraker")
+
+        def restore():
+            try:
+                self.s.restore_timer_preferences()
+            except Exception as error:
+                errors.append(error)
+
+        def snapshot():
+            self.s.snapshot()
+            snapshot_done.set()
+
+        self.mr.run_gcode.side_effect = blocked_gcode
+        worker = threading.Thread(target=restore)
+        reader = threading.Thread(target=snapshot)
+        worker.start()
+        try:
+            self.assertTrue(entered.wait(1))
+            reader.start()
+            self.assertTrue(snapshot_done.wait(1), "timer request blocked screen snapshots")
+            self.s.restore_timer_preferences()
+            self.mr.run_gcode.assert_called_once()
+            self.s.merge_status({"extruder": {"temperature": 25}}, 100)
+        finally:
+            release.set()
+            worker.join(2)
+            if reader.ident is not None:
+                reader.join(2)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(errors, [])
+        self.assertFalse(self.s.timer_preferences_pending)
+
+    def test_restart_during_timer_request_does_not_consume_pending_restore(self):
+        self.configure_saved_timers()
+
+        def restarting_gcode(command):
+            with self.assertRaises(EOFError):
+                self.s.stream_message({"method": "notify_klippy_ready"})
+
+        self.mr.run_gcode.side_effect = restarting_gcode
+        self.s.restore_timer_preferences()
+        self.assertTrue(self.s.timer_preferences_pending)
+        self.mr.run_gcode.side_effect = None
+        self.s.merge_status(self.state, 100, full=True, new_epoch=True)
+        self.s.settings_refresh_needed = False
+        self.s.restore_timer_preferences()
+        self.assertEqual(self.mr.run_gcode.call_count, 2)
+        self.assertFalse(self.s.timer_preferences_pending)
+
+    def test_timer_restore_retries_failure_and_restarts_after_klipper_ready(self):
+        self.configure_saved_timers()
+        self.mr.run_gcode.side_effect = OSError("Klipper unavailable")
+        with self.assertRaises(OSError):
+            self.s.restore_timer_preferences()
+        self.assertTrue(self.s.timer_preferences_pending)
+        self.mr.run_gcode.side_effect = None
+        self.s.restore_timer_preferences()
+        self.assertFalse(self.s.timer_preferences_pending)
+        with self.assertRaises(EOFError):
+            self.s.stream_message({"method": "notify_klippy_ready"})
+        self.assertTrue(self.s.timer_preferences_pending)
+        self.assertTrue(self.s.settings_refresh_needed)
+        self.s.restore_timer_preferences()
+        self.assertEqual(self.mr.run_gcode.call_count, 2)
+        self.s.merge_status(self.state, 100, full=True, new_epoch=True)
+        self.s.settings_refresh_needed = False
+        self.s.restore_timer_preferences()
+        self.assertEqual(self.mr.run_gcode.call_count, 3)
+
+    def test_nonready_status_and_remote_reboot_rearm_timer_restore(self):
+        self.configure_saved_timers()
+        self.s.restore_timer_preferences()
+        self.s.merge_status({"webhooks": {"state": "shutdown"}}, 100)
+        self.assertTrue(self.s.timer_preferences_pending)
+        self.assertTrue(self.s.settings_refresh_needed)
+        self.s.timer_preferences_pending = False
+        self.s.merge_status(self.state, 1, full=True, clock_baseline=100)
+        self.assertTrue(self.s.timer_preferences_pending)
+
+    def test_timer_restore_skips_invalid_or_missing_preferences_and_capabilities(self):
+        self.configure_saved_timers()
+        for prefs in ({}, {"idle": -1, "light_off": "300"}, {"idle": True, "light_off": False}):
+            self.s.prefs = prefs
+            self.s.timer_preferences_pending = True
+            self.s.restore_timer_preferences()
+            self.mr.run_gcode.assert_not_called()
+        self.s.prefs = {"idle": 0, "light_off": 0}
+        self.s.timer_preferences_pending = True
+        self.s.settings = {}
+        self.s.restore_timer_preferences()
+        self.mr.run_gcode.assert_not_called()
+        self.s.settings = {"idle_timeout": {}}
+        self.s.timer_preferences_pending = True
+        self.s.restore_timer_preferences()
+        self.mr.run_gcode.assert_called_once_with("SET_IDLE_TIMEOUT TIMEOUT=86400")
+
+    def test_background_poll_restores_timers_after_config_refresh(self):
+        self.configure_saved_timers()
+        self.config.update(self.s.settings)
+        self.s.settings_refresh_needed = True
+        self.s.stream_connected = True
+        self.s.update_screen_idle = mock.Mock()
+        self.s.preload_files = mock.Mock()
+        self.s.refresh_platform = mock.Mock()
+        self.s.read_policy.update = mock.Mock()
+        with mock.patch("service.time.sleep", side_effect=StopIteration):
+            with self.assertRaises(StopIteration):
+                self.s.poll()
+        self.mr.run_gcode.assert_called_once()
+        self.assertFalse(self.s.timer_preferences_pending)
 
     def test_live_printer_preferences_override_saved_screen_values(self):
         self.s.prefs.update(idle=900, light_off=300, cfs_auto_refill=True)
