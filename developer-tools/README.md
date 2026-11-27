@@ -4,6 +4,9 @@ This guide covers building, changing and testing the native touchscreen, then
 shipping the matching printer binary. All commands run from the repository root.
 Use `touchscreen/out/` for local outputs; it is ignored by Git.
 
+For release scope, user-facing notes, screenshots and package requirements, see
+the [release guide](RELEASING.md).
+
 ## 1. Understand the components
 
 The interface is written in **C11 with LVGL**, with a **Python backend**. The same
