@@ -28,8 +28,11 @@ or a reasonable expectation about the release.
 
 ## Write the notes
 
-Aim for 250–450 words, excluding image captions and a full-changelog link. Small
-fix releases should be shorter. Use only the sections the release needs.
+Aim for 250–450 words for updates, excluding image captions and a full-changelog
+link. A first release may use up to about 650 words to list the included features
+and settings. Small fix releases should be shorter. Use only the sections the
+release needs. For a first release, group the feature list by printer task and
+include a Settings section naming the available controls and optional components.
 
 - Open with one sentence naming the main change or the purpose of a first release.
 - Group changes by the areas users recognize, such as Home and printing,
