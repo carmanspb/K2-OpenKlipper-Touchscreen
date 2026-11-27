@@ -5,6 +5,7 @@ import time
 from pathlib import Path
 import sys
 import tempfile
+import threading
 import unittest
 from unittest import mock
 
@@ -542,6 +543,63 @@ class ServiceTests(unittest.TestCase):
         self.s.operations = {}
         self.s.restore_timer_preferences()
         self.mr.run_gcode.assert_called_once()
+
+    def test_timer_restore_keeps_screen_responsive_while_moonraker_waits(self):
+        self.configure_saved_timers()
+        entered, release, snapshot_done = threading.Event(), threading.Event(), threading.Event()
+        errors = []
+
+        def blocked_gcode(command):
+            entered.set()
+            if not release.wait(5):
+                raise TimeoutError("test did not release Moonraker")
+
+        def restore():
+            try:
+                self.s.restore_timer_preferences()
+            except Exception as error:
+                errors.append(error)
+
+        def snapshot():
+            self.s.snapshot()
+            snapshot_done.set()
+
+        self.mr.run_gcode.side_effect = blocked_gcode
+        worker = threading.Thread(target=restore)
+        reader = threading.Thread(target=snapshot)
+        worker.start()
+        try:
+            self.assertTrue(entered.wait(1))
+            reader.start()
+            self.assertTrue(snapshot_done.wait(1), "timer request blocked screen snapshots")
+            self.s.restore_timer_preferences()
+            self.mr.run_gcode.assert_called_once()
+            self.s.merge_status({"extruder": {"temperature": 25}}, 100)
+        finally:
+            release.set()
+            worker.join(2)
+            if reader.ident is not None:
+                reader.join(2)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(errors, [])
+        self.assertFalse(self.s.timer_preferences_pending)
+
+    def test_restart_during_timer_request_does_not_consume_pending_restore(self):
+        self.configure_saved_timers()
+
+        def restarting_gcode(command):
+            with self.assertRaises(EOFError):
+                self.s.stream_message({"method": "notify_klippy_ready"})
+
+        self.mr.run_gcode.side_effect = restarting_gcode
+        self.s.restore_timer_preferences()
+        self.assertTrue(self.s.timer_preferences_pending)
+        self.mr.run_gcode.side_effect = None
+        self.s.merge_status(self.state, 100, full=True, new_epoch=True)
+        self.s.settings_refresh_needed = False
+        self.s.restore_timer_preferences()
+        self.assertEqual(self.mr.run_gcode.call_count, 2)
+        self.assertFalse(self.s.timer_preferences_pending)
 
     def test_timer_restore_retries_failure_and_restarts_after_klipper_ready(self):
         self.configure_saved_timers()

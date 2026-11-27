@@ -362,6 +362,7 @@ class Service:
         self.printer_generation = 0
         self.settings_refresh_needed = True
         self.timer_preferences_pending = True
+        self.timer_restore_token = None
         self.last_status_at = 0.0
         self.last_poll_warning = 0.0
         self.read_policy = storage.FilamentReadPolicy()
@@ -1782,6 +1783,7 @@ class Service:
                 self.status.clear()
                 if remote_reboot or reset_clock:
                     self.timer_preferences_pending = True
+                    self.timer_restore_token = None
                     self.settings = {}
                     self.notify_state()
                 self.settings_refresh_needed = True
@@ -1815,6 +1817,7 @@ class Service:
             self.platform.pop("connection_error", None)
             if self.status.get("webhooks", {}).get("state") != "ready":
                 self.timer_preferences_pending = True
+                self.timer_restore_token = None
                 self.settings_refresh_needed = True
                 self.requested_values.clear()
                 self.pending_temperatures.clear()
@@ -1936,6 +1939,7 @@ class Service:
             # A subscription from the previous Klipper instance must not stop
             # HTTP polling or retain the old instance's partial CFS schema.
             self.timer_preferences_pending = True
+            self.timer_restore_token = None
             self.settings_refresh_needed = True
             if method == "notify_klippy_ready":
                 self.printer_generation += 1
@@ -2083,6 +2087,7 @@ class Service:
         with self.lock:
             if (
                 not self.timer_preferences_pending
+                or self.timer_restore_token is not None
                 or not self.connected
                 or self.settings_refresh_needed
                 or self.status.get("webhooks", {}).get("state") != "ready"
@@ -2106,10 +2111,25 @@ class Service:
                     ])
                 elif "idle_timeout" in self.settings:
                     commands.append("SET_IDLE_TIMEOUT TIMEOUT=%d" % (value or 86400))
-            if commands:
-                self.gcode("\n".join(commands))
-            # Leave pending on failure so the next background cycle can retry.
-            self.timer_preferences_pending = False
+            if not commands:
+                self.timer_preferences_pending = False
+                return
+            token = self.timer_restore_token = object()
+        # Moonraker may queue this request for a long time. Keep status merges,
+        # snapshots and action admission responsive while waiting for its reply.
+        try:
+            self.gcode("\n".join(commands))
+        except Exception:
+            with self.lock:
+                if self.timer_restore_token is token:
+                    self.timer_restore_token = None
+            raise
+        with self.lock:
+            # Restart notifications invalidate the reservation. An old response
+            # must not consume the new Klipper instance's pending restoration.
+            if self.timer_restore_token is token:
+                self.timer_restore_token = None
+                self.timer_preferences_pending = False
 
     def current_preferences(self):
         prefs = dict(self.prefs)
