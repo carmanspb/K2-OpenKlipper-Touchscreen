@@ -143,10 +143,20 @@ service has its own reconnecting screen. The previous page returns after reconne
 ### Bed mesh
 
 - Open from Move. Drag to rotate the surface; the X/Y/Z markers follow the view.
-  Reset the view with one tap.
+  X increases left to right, Y front to back, and Z upward. A Front marker follows
+  the physical front edge, with its text angled along that edge. Rotation stays
+  upright. Reset the view with one tap.
 - Review the profile name, grid, minimum/maximum height and Z range. Saved
-  profiles form a scrollable list with Load, Delete and active-profile Rename actions.
-- Probe or save a named mesh when idle. During printing, viewing and rotation
+  profiles form a scrollable list: tap a single-line name to preview saved points
+  without loading a mesh. Each row has borderless Load and Delete icons; a check
+  marks the loaded profile. Rename the displayed profile using the pencil beside
+  its title; an unloaded preview also has a Load icon beside the pencil. Long
+  names stay still and end with an ellipsis. Hold a name to scroll it; release
+  to restore the truncated view. Profile actions preserve the list position.
+  Renaming an unloaded profile restores the previously loaded profile. Renaming
+  another profile is blocked while the current mesh is unsaved.
+- The list has no header or Save action and shows three full profiles at once.
+  Probe the bed when idle. During printing, viewing and rotation
   remain available, while probing and profile changes are disabled.
 - Probing replaces the old surface with progress. With no active mesh, load a
   saved profile or probe a new one; an empty viewer explains when probing must wait.
@@ -154,6 +164,18 @@ service has its own reconnecting screen. The previous page returns after reconne
 | Bed mesh | Probing in progress |
 | --- | --- |
 | ![Bed mesh](screenshots/mesh.png) | ![Probing in progress](screenshots/meshing.png) |
+
+| Selected saved mesh, not loaded | Front marker follows rotation |
+| --- | --- |
+| ![Saved mesh preview](screenshots/mesh-selected.png) | ![Rotated bed with front marker](screenshots/mesh-rotated.png) |
+
+| Rename the displayed mesh | Prepare the bed before probing |
+| --- | --- |
+| ![Rename mesh](screenshots/mesh-rename.png) | ![Bed preparation confirmation](screenshots/mesh-probe.png) |
+
+| Long name at rest | Hold the name to read it |
+| --- | --- |
+| ![Truncated mesh names](screenshots/mesh-long-name.png) | ![Held mesh name scrolling](screenshots/mesh-long-name-held.png) |
 
 | Saved profiles, none active | No measured or saved mesh |
 | --- | --- |

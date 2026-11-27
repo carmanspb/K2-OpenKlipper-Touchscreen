@@ -493,7 +493,7 @@ void ui_confirm(const char *message, const char *command) {
         : !strcmp(kind, "mesh_profile")
             ? (!strcmp(jstr(parsed, "operation", ""), "delete")   ? "Delete mesh profile?"
                : !strcmp(jstr(parsed, "operation", ""), "rename") ? "Rename mesh profile?"
-                                                                  : "Save mesh profile?")
+                                                                  : "Change mesh profile?")
         : !strcmp(kind, "motors")  ? "Unlock motors?"
         : !strcmp(kind, "restart") ? "Restart printer control?"
         : (!strcmp(kind, "delete_file") || !strcmp(kind, "delete_recording")) ? "Delete file?"
@@ -511,7 +511,7 @@ void ui_confirm(const char *message, const char *command) {
     else if (!strcmp(kind, "mesh_profile"))
         label = !strcmp(jstr(parsed, "operation", ""), "delete")   ? "Delete"
                 : !strcmp(jstr(parsed, "operation", ""), "rename") ? "Rename"
-                                                                   : "Save";
+                                                                   : "Continue";
     else if (!strcmp(kind, "motors"))
         label = "Unlock motors";
     else if (!strcmp(kind, "cancel"))

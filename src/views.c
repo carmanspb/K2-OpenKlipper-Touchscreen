@@ -2636,7 +2636,8 @@ void views_action(const char *a) {
         }
         cJSON *r = request("calibrate");
         cJSON_AddStringToObject(r, "kind", a + 10);
-        confirmed("Clear the bed and stay beside the printer. Start calibration?", r);
+        confirmed("Make sure the bed is clean and the build plate is installed. Start calibration?",
+                  r);
     } else if (!strcmp(a, "save_config"))
         confirmed("Save pending calibration changes and restart Klipper?", request("save_config"));
     else if (!strncmp(a, "restart:", 8)) {

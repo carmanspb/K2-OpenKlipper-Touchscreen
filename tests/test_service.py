@@ -326,6 +326,43 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertNotIn("SAVE_CONFIG", self.mr.run_gcode.call_args.args[0])
 
+    def test_standalone_mesh_save_is_removed(self):
+        self.prepare_mesh()
+        with self.assertRaisesRegex(ValueError, "Unknown mesh profile operation"):
+            self.run_action("mesh_profile", operation="save", name="New mesh", confirm=True)
+        self.mr.run_gcode.assert_not_called()
+
+    def test_rename_unloaded_mesh_restores_current_profile(self):
+        self.prepare_mesh()
+        self.run_action("mesh_profile", operation="rename", name="PETG 80C", new_name="PETG warm", confirm=True)
+        self.mr.run_gcode.assert_called_once_with(
+            'BED_MESH_PROFILE LOAD="PETG 80C"\nBED_MESH_PROFILE SAVE="PETG warm"\nBED_MESH_PROFILE LOAD="PETG warm"\nBED_MESH_PROFILE REMOVE="PETG 80C"\nBED_MESH_PROFILE LOAD="PLA 60C"')
+
+    def test_rename_with_no_loaded_mesh_restores_empty_state(self):
+        for points in ([], [[]], [[], []]):
+            with self.subTest(points=points):
+                self.prepare_mesh()
+                self.mr.run_gcode.reset_mock()
+                self.state["bed_mesh"].update(profile_name="", probed_matrix=points)
+                self.run_action(
+                    "mesh_profile", operation="rename", name="PETG 80C",
+                    new_name="PETG warm", confirm=True,
+                )
+                self.mr.run_gcode.assert_called_once()
+                command = self.mr.run_gcode.call_args.args[0]
+                self.assertTrue(command.startswith('BED_MESH_PROFILE LOAD="PETG 80C"\n'))
+                self.assertIn('BED_MESH_PROFILE SAVE="PETG warm"', command)
+                self.assertIn('BED_MESH_PROFILE REMOVE="PETG 80C"', command)
+                self.assertTrue(command.endswith("\nBED_MESH_CLEAR"))
+                self.assertNotIn("SAVE_CONFIG", command)
+
+    def test_rename_unloaded_mesh_preserves_unsaved_mesh(self):
+        self.prepare_mesh()
+        self.state["bed_mesh"].update(profile_name="", probed_matrix=[[0, 0], [0, 0]])
+        with self.assertRaisesRegex(ValueError, "current mesh is unsaved"):
+            self.run_action("mesh_profile", operation="rename", name="PETG 80C", new_name="PETG warm", confirm=True)
+        self.mr.run_gcode.assert_not_called()
+
     def test_mesh_profile_changes_reject_printing_stale_names_and_command_injection(
         self,
     ):
@@ -336,7 +373,6 @@ class ServiceTests(unittest.TestCase):
             ("save", "default", ""),
             ("save", "PLA 60C", ""),
             ("rename", "PLA 60C", 'name";M112'),
-            ("rename", "PETG 80C", "new"),
         ):
             with self.subTest(operation=operation, name=name):
                 with self.assertRaises((ValueError, RuntimeError)):

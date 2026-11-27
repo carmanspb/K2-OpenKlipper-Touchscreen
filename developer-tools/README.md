@@ -186,6 +186,11 @@ that inventory when adding a control. Unused size variants are not shipped.
 Interactive previews need an X11 display, or XWayland on a Wayland desktop.
 Headless captures do not need a display server.
 
+Compiler prefix mappings replace local source, dependency and build-directory
+paths with `touchscreen`, `lvgl`, `cjson` and `build` in file-name macros and debug
+metadata. They apply to both the UI and LVGL library during compilation. Package
+tests also check the shipped ARM binary for embedded personal build paths.
+
 ## 3. Preview the interface
 
 ### Start with a bundled case
@@ -264,7 +269,8 @@ sh touchscreen/developer-tools/preview.sh --case motors-on
 sh touchscreen/developer-tools/preview.sh --case motors-off
 ```
 
-The mesh case contains a synthetic 9-by-9 surface and three saved profiles.
+The mesh case contains three distinct synthetic 9-by-9 surfaces. Tap each name
+to preview its shape without loading it. All three rows fit without scrolling.
 The layout pairs a shaded surface with current-mesh statistics and a scrollable
 profile list, following the useful arrangement in [HelixScreen](https://helixscreen.org/guide/calibration/).
 Its renderer and controls are implemented independently for our LVGL 8 application.

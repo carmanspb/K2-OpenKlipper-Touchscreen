@@ -19,6 +19,13 @@ package_check = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(package_check)
 
 
+class ShippedBuildPrivacy(unittest.TestCase):
+    def test_arm_runtime_does_not_embed_personal_build_paths(self):
+        binary = (ROOT / "precompiled/armv7/openklipper-screen").read_bytes()
+        self.assertNotRegex(binary, rb"/(?:home|Users|root)/")
+        self.assertNotIn(str(ROOT).encode(), binary)
+
+
 class PackageChecks(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
