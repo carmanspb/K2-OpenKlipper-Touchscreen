@@ -83,6 +83,24 @@ class ServiceTests(unittest.TestCase):
     def run_action(self, action, **kw):
         return self.s.execute(dict(action=action, **kw))
 
+    def test_lowercase_config_macro_preferences_and_light_toggle(self):
+        self.config["gcode_macro _light_idle"] = {"variable_off_after": 600}
+        self.config["gcode_macro _runout_refill"] = self.config.pop("gcode_macro _RUNOUT_REFILL")
+        self.s.settings = copy.deepcopy(self.config)
+        self.assertEqual(self.s.current_preferences()["light_off"], 600)
+        self.assertTrue(self.s.current_preferences()["cfs_auto_refill"])
+        self.run_action("preference", key="light_off", value=300)
+        self.assertIn(mock.call("SET_GCODE_VARIABLE MACRO=_LIGHT_IDLE VARIABLE=off_after VALUE=300"), self.mr.run_gcode.call_args_list)
+        self.assertIn(mock.call("_LIGHT_IDLE"), self.mr.run_gcode.call_args_list)
+        self.run_action("preference", key="cfs_auto_refill", value=False)
+        self.mr.run_gcode.assert_called_with("SET_GCODE_VARIABLE MACRO=_RUNOUT_REFILL VARIABLE=enabled VALUE=0")
+        self.run_action("light", value=True)
+        self.assertIn("\n_LIGHT_IDLE", self.mr.run_gcode.call_args.args[0])
+        self.s.settings["gcode_macro _light_idle"]["variable_off_after"] = 1800
+        self.assertEqual(self.s.snapshot()["prefs"]["light_off"], 1800)
+        self.s.settings["gcode_macro _light_idle"]["variable_off_after"] = 0
+        self.assertEqual(self.s.snapshot()["prefs"]["light_off"], 0)
+
     def test_bundled_printer_artwork_switches_with_cfs_presence(self):
         self.s.prepare_artwork()
         with_cfs = self.s.platform["printer_image"]

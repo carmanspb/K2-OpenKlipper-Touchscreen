@@ -967,8 +967,8 @@ class Service:
                 "resources": self.resources.descriptor,
                 "catalogue": self.catalogue.descriptor,
                 "prefs": self.cached_presentation(
-                    "prefs", (self.prefs, self.settings.get("gcode_macro _LIGHT_IDLE"),
-                              self.settings.get("idle_timeout"), self.settings.get("gcode_macro _RUNOUT_REFILL"),
+                    "prefs", (self.prefs, model.macro_options(self.settings, "_LIGHT_IDLE"),
+                              self.settings.get("idle_timeout"), model.macro_options(self.settings, "_RUNOUT_REFILL"),
                               status.get("gcode_macro _LIGHT_IDLE"), status.get("idle_timeout"),
                               status.get("gcode_macro _RUNOUT_REFILL"),
                               self.config.get("screen", "sleep_after", fallback="600")), self.current_preferences),
@@ -1164,7 +1164,7 @@ class Service:
                 "SET_PIN PIN=chamber_led VALUE=%d" % on
                 + (
                     "\n_LIGHT_IDLE"
-                    if on and "gcode_macro _LIGHT_IDLE" in settings
+                    if on and "gcode_macro _light_idle" in {key.lower() for key in settings}
                     else ""
                 )
             )
@@ -1691,7 +1691,7 @@ class Service:
                 raise ValueError("Invalid preference value")
             if key == "brightness":
                 platform.set_brightness(value)
-            elif key == "light_off" and "gcode_macro _LIGHT_IDLE" in settings:
+            elif key == "light_off" and "gcode_macro _light_idle" in {key.lower() for key in settings}:
                 self.gcode(
                     "SET_GCODE_VARIABLE MACRO=_LIGHT_IDLE VARIABLE=off_after VALUE=%d"
                     % value
@@ -1710,7 +1710,7 @@ class Service:
             if not isinstance(value, bool):
                 raise ValueError("Invalid switch value")
             if key == "cfs_auto_refill":
-                if "gcode_macro _RUNOUT_REFILL" not in settings:
+                if "gcode_macro _runout_refill" not in {key.lower() for key in settings}:
                     raise ValueError("Refill unavailable")
                 self.gcode(
                     "SET_GCODE_VARIABLE MACRO=_RUNOUT_REFILL VARIABLE=enabled VALUE=%d"
@@ -2147,7 +2147,7 @@ class Service:
         prefs["light_off"] = int(
             self.status.get("gcode_macro _LIGHT_IDLE", {}).get(
                 "off_after",
-                self.settings.get("gcode_macro _LIGHT_IDLE", {}).get(
+                model.macro_options(self.settings, "_LIGHT_IDLE").get(
                     "variable_off_after", 0
                 ),
             )
@@ -2161,7 +2161,7 @@ class Service:
         )
         refill = self.status.get("gcode_macro _RUNOUT_REFILL", {}).get(
             "enabled",
-            self.settings.get("gcode_macro _RUNOUT_REFILL", {}).get(
+            model.macro_options(self.settings, "_RUNOUT_REFILL").get(
                 "variable_enabled", 0
             ),
         )
