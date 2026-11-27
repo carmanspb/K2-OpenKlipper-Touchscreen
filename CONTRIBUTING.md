@@ -66,8 +66,10 @@ branch/package changes reports `touchscreen/package` success on that exact head.
 Dispatched workflow job checks are not themselves used as the merge gate: the
 workflow publishes an explicit commit status. Main advancing triggers another
 preparation pass; required branch freshness prevents merging the old result.
-Cancelled attempts leave the status to their replacement run and do not report
-a source/package failure.
+Runs for the same PR are serialized so a follow-up cannot cancel its publishing
+parent. Stale-head/main checks still prevent outdated runs from pushing or
+reporting success. Cancelled attempts leave the status to their replacement run
+and do not report a source/package failure.
 
 Configure the main ruleset to require `touchscreen/package` and require branches
 to be up to date. Keep the existing review and PR-only rules. Merge this workflow

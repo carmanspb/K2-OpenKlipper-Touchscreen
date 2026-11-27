@@ -13,7 +13,8 @@ permissions:
 
 concurrency:
   group: package-pr-${{ inputs.pr_number }}
-  cancel-in-progress: true
+  # A follow-up validation must wait for its publishing parent to finish.
+  cancel-in-progress: false
 
 env:
   INTEGRATION_REF: a382595d8f6f4c9f88220ba50354767fae9f2fac
