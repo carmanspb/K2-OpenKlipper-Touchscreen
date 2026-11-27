@@ -775,4 +775,32 @@ class NativeUI(unittest.TestCase):
   self.assertFalse(any(i['action']=='back' and i['rect'][1]<100 for i in items))
 
 
+
+ def test_tune_loading_grace_skips_indicator_for_fast_reply(self):
+  waiting=copy.deepcopy(self.data);waiting['status']['print_stats']['state']='printing'
+  ready=copy.deepcopy(waiting);waiting['status'].pop('gcode_move')
+  items,commands=self.render(data=waiting,actions=['route:tune',{'advance_ms':40}])
+  self.assertTrue(any(i['action']=='route:objects' for i in items))
+  items,commands=self.render(data=waiting,actions=['route:tune',{'advance_ms':40},{'snapshot':ready}])
+  self.assertTrue(any(i['action']=='tune_input:speed' for i in items))
+
+ def test_tune_loading_indicator_has_minimum_visible_time(self):
+  waiting=copy.deepcopy(self.data);waiting['status']['print_stats']['state']='printing'
+  ready=copy.deepcopy(waiting);waiting['status'].pop('gcode_move')
+  actions=['route:tune',{'advance_ms':180}]
+  items,_=self.render(data=waiting,actions=actions)
+  self.assertFalse(any(i['action'] in ('route:objects','tune_input:speed') for i in items))
+  items,_=self.render(data=waiting,actions=actions+[{'snapshot':ready}])
+  self.assertFalse(any(i['action']=='tune_input:speed' for i in items))
+  items,_=self.render(data=waiting,actions=actions+[{'snapshot':ready},{'advance_ms':220}])
+  self.assertTrue(any(i['action']=='tune_input:speed' for i in items))
+
+ def test_tune_loading_grace_blocks_old_controls_and_allows_navigation(self):
+  waiting=copy.deepcopy(self.data);waiting['status']['print_stats']['state']='printing'
+  waiting['status'].pop('gcode_move')
+  _,commands=self.render(data=waiting,actions=['route:tune','{"action":"pause"}'])
+  self.assertFalse(any(c['action']=='pause' for c in commands))
+  items,_=self.render(data=waiting,actions=['route:tune',{'advance_ms':180},'route:home'])
+  self.assertTrue(any(i['action']=='route:objects' for i in items))
+
 if __name__=='__main__':unittest.main()
