@@ -403,6 +403,8 @@ sh /mnt/UDISK/openklipper-screen/uninstall.sh
 - `--check` verifies the replacement without stopping or removing the native screen.
 - Uninstall stops both native processes, performs a full upstream reinstall and
   verifies HarkScreen before removing native runtime files and display settings.
+- Restores missing HarkScreen display settings from the newest available installer backups, then restarts HarkScreen to load them. Existing HarkScreen settings take priority.
+- Keeps the current system timezone; restored `auto` follows that timezone.
 - Printer configuration, G-code files and installer backups are retained.
   If replacement fails, native files are kept.
 
