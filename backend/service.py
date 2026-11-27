@@ -288,6 +288,9 @@ class WebSocket:
         self.sock.close()
 
 
+TIMER_CHOICES = {"light_off": (0, 300, 600, 1800), "idle": (0, 900, 1800, 3600, 86400)}
+
+
 class Service:
     def __init__(self, config, mr=None):
         self.config_path = Path(config)
@@ -358,6 +361,7 @@ class Service:
         self.status_epoch = 0
         self.printer_generation = 0
         self.settings_refresh_needed = True
+        self.timer_preferences_pending = True
         self.last_status_at = 0.0
         self.last_poll_warning = 0.0
         self.read_policy = storage.FilamentReadPolicy()
@@ -1679,8 +1683,7 @@ class Service:
         choices = {
             "brightness": (25, 50, 75, 100),
             "sleep_after": (0, 120, 300, 600),
-            "light_off": (0, 300, 600, 1800),
-            "idle": (0, 900, 1800, 3600, 86400),
+            **TIMER_CHOICES,
         }
         if key in choices:
             if value not in choices[key]:
@@ -1778,6 +1781,7 @@ class Service:
                 self.status_times.clear()
                 self.status.clear()
                 if remote_reboot or reset_clock:
+                    self.timer_preferences_pending = True
                     self.settings = {}
                     self.notify_state()
                 self.settings_refresh_needed = True
@@ -1810,6 +1814,8 @@ class Service:
             state_changed |= "connection_error" in self.platform
             self.platform.pop("connection_error", None)
             if self.status.get("webhooks", {}).get("state") != "ready":
+                self.timer_preferences_pending = True
+                self.settings_refresh_needed = True
                 self.requested_values.clear()
                 self.pending_temperatures.clear()
                 self.pending_fans.clear()
@@ -1929,6 +1935,8 @@ class Service:
         ):
             # A subscription from the previous Klipper instance must not stop
             # HTTP polling or retain the old instance's partial CFS schema.
+            self.timer_preferences_pending = True
+            self.settings_refresh_needed = True
             if method == "notify_klippy_ready":
                 self.printer_generation += 1
             self.stream_connected = False
@@ -2070,6 +2078,39 @@ class Service:
                 if ws:
                     ws.close()
 
+    def restore_timer_preferences(self):
+        """Restore saved timers once per Klipper startup, after fresh config."""
+        with self.lock:
+            if (
+                not self.timer_preferences_pending
+                or not self.connected
+                or self.settings_refresh_needed
+                or self.status.get("webhooks", {}).get("state") != "ready"
+                or model.active(self.status)
+                or self.operation
+            ):
+                return
+            commands = []
+            for key, choices in TIMER_CHOICES.items():
+                value = self.prefs.get(key)
+                # Settings files may be old or edited manually. Never turn an
+                # invalid saved value into a printer command.
+                if type(value) is not int or value not in choices:
+                    continue
+                if key == "light_off":
+                    if "gcode_macro _light_idle" not in {name.lower() for name in self.settings}:
+                        continue
+                    commands.extend([
+                        "SET_GCODE_VARIABLE MACRO=_LIGHT_IDLE VARIABLE=off_after VALUE=%d" % value,
+                        "_LIGHT_IDLE",
+                    ])
+                elif "idle_timeout" in self.settings:
+                    commands.append("SET_IDLE_TIMEOUT TIMEOUT=%d" % (value or 86400))
+            if commands:
+                self.gcode("\n".join(commands))
+            # Leave pending on failure so the next background cycle can retry.
+            self.timer_preferences_pending = False
+
     def current_preferences(self):
         prefs = dict(self.prefs)
         # Resolve HarkScreen's auto mode for display; retain the saved preference.
@@ -2081,8 +2122,8 @@ class Service:
                 "sleep_after", self.config.get("screen", "sleep_after", fallback="600")
             )
         )
-        # Printer state is authoritative. Saved screen preferences never replay
-        # printer commands when this service starts or reconnects.
+        # Display live values. Saved timers are restored separately once Klipper
+        # is ready and idle; ordinary stream reconnects do not replay commands.
         prefs["light_off"] = int(
             self.status.get("gcode_macro _LIGHT_IDLE", {}).get(
                 "off_after",
@@ -2635,6 +2676,7 @@ class Service:
                                 self.platform.pop("timelapse")
                                 self.notify_state()
                 self.refresh_catalogue()
+                self.restore_timer_preferences()
                 self.update_screen_idle()
                 self.preload_files()
                 self.preload_print_preview(now)

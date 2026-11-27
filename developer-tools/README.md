@@ -529,9 +529,12 @@ Routine snapshots are sent at up to five updates per second; incoming commands
 wake the socket loop immediately. A failed peripheral refresh does not invalidate
 a healthy printer stream. Same-host reconnects retain cached settings while
 refreshing them; a remote clock reset still invalidates the old configuration.
-The backend validates current settings again before printer actions. Connecting
-the screen never replays saved idle, light or CFS settings; it reads their live
-printer values. Only explicit user changes send preference commands.
+The backend validates current settings again before printer actions. Once Klipper
+is ready and idle with fresh configuration, the screen restores valid saved light
+and idle timers once per startup. Restoration waits during printing, pauses and
+screen operations, and retries failed commands. Ordinary stream reconnects do
+not overwrite live timer changes. CFS refill is never restored automatically.
+The timer rows continue to show live printer values.
 
 Display telemetry follows `action_policy.display_telemetry`: Move requests
 coordinates only when its ready/idle control policy allows movement; Tune
