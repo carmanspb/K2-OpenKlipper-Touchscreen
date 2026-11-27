@@ -3,10 +3,10 @@
 import hashlib
 import importlib.util
 import json
-from pathlib import Path
 import shutil
 import tempfile
 import unittest
+from pathlib import Path
 
 import test_package_installation as package_tests
 
