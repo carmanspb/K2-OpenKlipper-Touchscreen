@@ -1,0 +1,43 @@
+name: Request PR package validation
+
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, reopened, synchronize, ready_for_review, edited]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+  actions: write
+  statuses: write
+
+jobs:
+  dispatch:
+    # Metadata only: never check out or execute PR code in this workflow.
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    steps:
+      - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            // GitHub uses 'edited' for title/body edits as well as base changes.
+            // Only a base change alters the source that needs validation.
+            if (context.eventName === 'pull_request_target' &&
+                context.payload.action === 'edited' && !context.payload.changes?.base) return;
+            const pulls = context.eventName === 'pull_request_target'
+              ? [(await github.rest.pulls.get({ ...context.repo, pull_number: context.payload.pull_request.number })).data]
+              : await github.paginate(github.rest.pulls.list, { ...context.repo, state: 'open', base: 'main', per_page: 100 });
+            for (const pr of pulls) {
+              if (pr.state !== 'open' || pr.base.ref !== 'main' || pr.draft) continue;
+              await github.rest.repos.createCommitStatus({
+                ...context.repo, sha: pr.head.sha, context: 'touchscreen/package',
+                state: 'pending', description: 'Preparing current main and validating the PR package'
+              });
+              await github.rest.actions.createWorkflowDispatch({
+                ...context.repo, workflow_id: 'arm-package.yml', ref: 'main',
+                inputs: { pr_number: String(pr.number) }
+              });
+            }

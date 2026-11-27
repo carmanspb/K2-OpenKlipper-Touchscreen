@@ -165,7 +165,7 @@ Use a C compiler, CMake 3.18+, Python 3.10+, Pillow, Node/npm, ImageMagick
 `convert` with SVG support, and X11 development headers. On Debian/Ubuntu:
 
 ```sh
-sudo apt install build-essential cmake python3 python3-pil nodejs npm imagemagick libx11-dev clang-format
+sudo apt install build-essential cmake python3 python3-pil nodejs npm imagemagick librsvg2-bin libx11-dev clang-format
 sh touchscreen/developer-tools/build.sh host
 ```
 
