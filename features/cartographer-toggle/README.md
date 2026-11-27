@@ -23,7 +23,9 @@ A dedicated **Enabling/Disabling Cartographer…** screen stays visible during t
 intentional Klipper disconnect. Success requires the utility to complete, the
 managed include to match, Klipper to return with the requested configuration and
 native motor initialization to finish. The same settings page then shows On/Off.
-Failures retain the observed configuration and show an error. Unrelated printer
+Failures retain the observed configuration and show an error. If printer state
+changes before the backend accepts a request, its rejection immediately returns
+the screen to the setting with the reason; no restart is started. Unrelated printer
 or local-screen-service disconnections keep their normal recovery behavior.
 
 ## Detection and performance

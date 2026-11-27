@@ -612,6 +612,18 @@ class Service:
             if action == "cartographer" and not self.cartographer_state.get("available"):
                 blocked = "Compatible Cartographer integration is not installed"
             if blocked:
+                if action == "cartographer":
+                    # The renderer already shows pending progress after send.
+                    # A rejected request never gets a worker/completion, so
+                    # acknowledge it here instead of leaving that screen waiting.
+                    self.operation_id += 1
+                    self.result = {
+                        "id": self.operation_id, "action": action,
+                        "success": False, "rejected": True, "error": blocked,
+                    }
+                    self.results.append(self.result)
+                    self.cartographer_state = dict(self.cartographer_state, error=blocked)
+                    self.changed()
                 raise action_policy.ActionBusy(blocked)
             if action == "file":
                 self.selection_id += 1

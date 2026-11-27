@@ -221,6 +221,29 @@ class ServiceTests(unittest.TestCase):
                 service.submit({"action": "view", "page": "cartographer"})
             self.assertEqual(inspect.call_count, 1)
 
+    def test_busy_rejection_acknowledges_without_reserving_or_starting_operation(self):
+        self.s.operation_id = 7
+        existing = {
+            "id": 7,
+            "action": "home",
+            "label": "Homing",
+            "resources": ["motion"],
+        }
+        self.s.operations[7] = existing
+        with self.assertRaises(action_policy.ActionBusy):
+            self.s.submit({"action": "cartographer", "enabled": True, "confirm": True})
+        result = self.s.snapshot()["result"]
+        self.assertEqual(result["id"], 8)
+        self.assertTrue(result["rejected"])
+        self.assertFalse(result["success"])
+        self.assertEqual(result["action"], "cartographer")
+        self.assertEqual(self.s.operations, {7: existing})
+        self.assertFalse(self.s.cartographer_state["busy"])
+        self.assertFalse(self.s.cartographer_state["enabled"])
+        self.assertEqual(self.s.cartographer_state["error"], result["error"])
+        self.s.cartographer.apply.assert_not_called()
+        self.s.fresh.assert_not_called()
+
     def test_confirmation_and_boolean_are_required_before_mutation(self):
         for request in ({"enabled": True}, {"confirm": True, "enabled": "true"}):
             with self.assertRaises(ValueError):
@@ -361,6 +384,36 @@ class NativeToggleTests(unittest.TestCase):
         self.assertTrue(any(i["action"] == "cartographer_toggle" for i in items))
         self.assertFalse(any(i["action"] == "open_files" for i in items))
 
+    def test_rejected_request_immediately_restores_settings_controls(self):
+        rejected = copy.deepcopy(self.data)
+        rejected["status"]["print_stats"]["state"] = "printing"
+        rejected["availability"]["cartographer"] = {
+            "enabled": False,
+            "reason": "Unavailable during printing",
+        }
+        rejected["cartographer"]["error"] = "Unavailable during printing"
+        rejected["results"] = [
+            {
+                "id": 1,
+                "action": "cartographer",
+                "success": False,
+                "rejected": True,
+                "error": "Unavailable during printing",
+            }
+        ]
+        rejected["result"] = rejected["results"][0]
+        items, commands = self.ui.render(
+            "cartographer",
+            ["cartographer_toggle", "confirmed", {"snapshot": rejected}],
+            self.data,
+        )
+        toggle = next(i for i in items if i["action"] == "cartographer_toggle")
+        self.assertFalse(toggle["enabled"])
+        self.assertTrue(any(i["action"] == "back" for i in items))
+        self.assertEqual(
+            commands, [{"action": "cartographer", "enabled": True, "confirm": True}]
+        )
+
     def test_unrelated_connection_loss_still_has_normal_recovery(self):
         lost = copy.deepcopy(self.data)
         lost["connected"] = False
@@ -414,3 +467,56 @@ class PackagingTests(unittest.TestCase):
         self.assertFalse(
             any("/tests/" in name or name.endswith("README.md") for name in inputs)
         )
+
+
+class SocketRejectionTests(unittest.TestCase):
+    def test_stale_idle_toggle_gets_rejection_through_real_socket_handler(self):
+        import test_state_updates
+
+        for scenario in ("printing", "movement", "operation"):
+            with self.subTest(scenario=scenario):
+                fixture = test_state_updates.StateUpdates()
+                fixture.setUp()
+                self.addCleanup(fixture.doCleanups)
+                service = fixture.s
+                service.cartographer_state = {
+                    "available": True,
+                    "enabled": False,
+                    "busy": False,
+                }
+                peer, reader, baseline = fixture.connect()
+                self.assertTrue(baseline["availability"]["cartographer"]["enabled"])
+                with service.lock:
+                    if scenario == "printing":
+                        service.status = dict(
+                            service.status, print_stats={"state": "printing"}
+                        )
+                    elif scenario == "movement":
+                        service.status = dict(
+                            service.status, idle_timeout={"state": "Printing"}
+                        )
+                    else:
+                        service.operations[3] = {
+                            "id": 3,
+                            "action": "home",
+                            "resources": ["motion"],
+                            "label": "Homing",
+                        }
+                        service.operation_id = 3
+                    service.changed()
+                with mock.patch.object(service, "execute") as execute:
+                    peer.sendall(
+                        b'{"action":"cartographer","enabled":true,"confirm":true}\n'
+                    )
+                    for _ in range(5):
+                        patch = json.loads(reader.readline())
+                        result = patch.get("set", patch).get("result")
+                        if result and result.get("rejected"):
+                            break
+                    else:
+                        self.fail("Backend did not acknowledge the rejected toggle")
+                    self.assertFalse(result["success"])
+                    self.assertEqual(result["action"], "cartographer")
+                    self.assertTrue(result["error"])
+                    self.assertFalse(service.cartographer_state["busy"])
+                    execute.assert_not_called()
