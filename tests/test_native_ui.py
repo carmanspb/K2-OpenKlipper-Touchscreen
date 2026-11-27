@@ -56,12 +56,19 @@ class NativeUI(unittest.TestCase):
 
  def test_all_pages_build_without_issuing_commands(self):
   pages=['home','move','heat','fans','filament','tune','calibration','files','file','mapping','mapping_pick',
-         'settings','display','timers','refill','refill_sequence','network','ethernet','wifi','networks',
+         'mesh','cartographer','settings','display','timers','refill','refill_sequence','network','ethernet','wifi','networks',
          'timelapse','recordings','storage','usb','system','machine','software','timezone','restart','save',
          'history','errors','help','language','objects','edit','materials','colors']
+  lowercase=copy.deepcopy(self.data)
+  lowercase['settings']={name.lower():{key.lower():value for key,value in options.items()}
+                         for name,options in self.data['settings'].items()}
   for page in pages:
    with self.subTest(page=page):
-    _,commands=self.render(page);self.assertTrue(all(c['action']=='files' for c in commands))
+    original,commands=self.render(page)
+    normalized,lower_commands=self.render(page,data=lowercase)
+    self.assertEqual(original,normalized)
+    self.assertEqual(commands,lower_commands)
+    self.assertTrue(all(c['action']=='files' for c in lower_commands))
 
  def test_idle_home_has_no_history_button_and_right_column_cfs(self):
   items,_=self.render()
