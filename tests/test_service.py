@@ -68,7 +68,7 @@ class ServiceTests(unittest.TestCase):
         self.state = status()
         self.config = settings()
         self.mr.query.side_effect = lambda: copy.deepcopy(self.state)
-        self.mr.status_snapshot.side_effect = lambda: {
+        self.mr.status_snapshot.side_effect = lambda **kwargs: {
             "status": self.mr.query(),
             "eventtime": time.monotonic(),
         }
@@ -509,6 +509,7 @@ class ServiceTests(unittest.TestCase):
         self.s.update_screen_idle = mock.Mock()
         self.s.preload_files = mock.Mock()
         self.s.refresh_platform = mock.Mock(side_effect=OSError("USB query failed"))
+        self.s.refresh_network = mock.Mock()
         with mock.patch("service.time.sleep", side_effect=StopIteration):
             with self.assertRaises(StopIteration):
                 self.s.poll()
@@ -868,14 +869,14 @@ class ServiceTests(unittest.TestCase):
                 self.assertIn("resources", baseline)
                 self.assertNotIn("_screen_patch", baseline)
                 with self.s.lock:
-                    self.s.sequence += 1
+                    self.s.changed()
                     self.s.status["extruder"] = {
                         "temperature": self.s.status.get("extruder", {}).get("temperature", 20) + 1
                     }
                 update = json.loads(reader.readline())
                 self.assertTrue(update["_screen_patch"])
                 self.assertNotIn("settings", update["set"])
-                self.assertIn("status", update["set"])
+                self.assertIn("extruder", update["status_set"])
             finally:
                 reader.close()
                 client.close()

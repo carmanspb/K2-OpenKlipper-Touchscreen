@@ -92,6 +92,7 @@ def main():
             ("multi-cfs", "filament", "multi-cfs", []),
             ("mapping-review", "file", "multi-cfs", ["review_mapping"]),
             ("tune", "tune", "printing", []),
+            ("tune-loading", "tune", "printing", []),
             ("calibrate", "calibration", "idle", []),
             ("general", "settings", "idle", []),
             ("network", "network", "idle", []),
@@ -174,6 +175,8 @@ def main():
                     for axis in ("stepper_x", "stepper_y", "stepper_z")
                 }
             }
+            if name == "tune-loading":
+                data["status"].pop("gcode_move", None)
             if name == "print-starting":
                 data["platform"].update(
                     starting_file="Demo print.gcode",

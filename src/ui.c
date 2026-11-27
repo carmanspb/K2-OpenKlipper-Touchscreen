@@ -12,6 +12,25 @@ static char modal_kind[32];
 static bool rebuild;
 static lv_obj_t *current_scroll;
 static char rendered_route[48];
+static bool tune_entry_pending, tune_loading_visible;
+static uint32_t tune_entered_at, tune_loading_at;
+static bool tune_values_ready(void) {
+    return J("status.gcode_move.speed_factor") && J("status.gcode_move.extrude_factor") &&
+           J("status.gcode_move.homing_origin");
+}
+static bool defer_tune_render(void) {
+    if (strcmp(app.route, "tune") || (!app.printing && !app.paused) ||
+        ui_connection_mode() != CONNECTION_READY) {
+        tune_entry_pending = false;
+        return false;
+    }
+    if (tune_values_ready()) {
+        tune_entry_pending = false;
+        /* Once shown, keep the indicator long enough to avoid a single-frame flash. */
+        return tune_loading_visible && (uint32_t)(lv_tick_get() - tune_loading_at) < 200;
+    }
+    return tune_entry_pending && (uint32_t)(lv_tick_get() - tune_entered_at) < 150;
+}
 static struct {
     char route[48];
     int offset;
@@ -756,6 +775,9 @@ void ui_route(const char *route, bool back) {
     }
     bool enter_files = !back && !strcmp(route, "files") && strcmp(app.route, "files") &&
                        strcmp(app.route, "file") && strncmp(app.route, "mapping", 7);
+    tune_entry_pending = app.rendered && !strcmp(route, "tune") && strcmp(app.route, "tune") &&
+                         (app.printing || app.paused) && !tune_values_ready();
+    tune_entered_at = lv_tick_get();
     snprintf(app.route, sizeof(app.route), "%s", route);
     report_visible_page();
     if (!strcmp(route, "materials"))
@@ -783,6 +805,9 @@ void ui_action(const char *action) {
         return;
     if (mode == CONNECTION_LOST && strcmp(action, "close") && !recovery_action(action))
         return;
+    if (tune_entry_pending && strcmp(rendered_route, app.route) && strncmp(action, "route:", 6) &&
+        strcmp(action, "back"))
+        return; /* Old page stays visible during the grace period, but cannot submit controls. */
     if (*ui_control_reason(action))
         return;
     if (!app.fixture) {
@@ -1325,6 +1350,11 @@ static void connection_screen(ConnectionMode mode) {
 }
 
 void ui_render(void) {
+    bool tune_loading = !strcmp(app.route, "tune") && (app.printing || app.paused) &&
+                        !tune_values_ready() && ui_connection_mode() == CONNECTION_READY;
+    if (tune_loading && !tune_loading_visible)
+        tune_loading_at = lv_tick_get();
+    tune_loading_visible = tune_loading;
     save_scroll();
     current_scroll = NULL;
     snprintf(rendered_route, 48, "%s", app.route);
@@ -1362,6 +1392,8 @@ void ui_render(void) {
     else
         views_render();
     restore_scroll();
+    if (current_scroll && !strcmp(app.route, "files"))
+        files_window_report(current_scroll);
     ui_update();
     app.rendered = true;
     views_overlay();
@@ -1383,7 +1415,7 @@ void ui_tick(void) {
         navigation();
         app.nav_dirty = false;
     }
-    if ((app.dirty || rebuild) && !pressing && !app.overlay)
+    if ((app.dirty || rebuild) && !pressing && !app.overlay && !defer_tune_render())
         ui_render();
 }
 

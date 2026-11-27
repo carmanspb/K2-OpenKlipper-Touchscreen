@@ -8,13 +8,13 @@ Screenshots show the native application with example data.
 
 ## Performance and responsiveness
 
-In the recorded comparison, the native screen responded fastest both idle and
-during printing. Printing CPU usage was close to stock Creality without taps
-and the lowest while tapping, at roughly half HarkScreen's load.
+In the recorded comparison, the native screen had the lowest screen CPU usage
+and fastest tap response both idle and during printing. Without taps, the screen
+and backend together used 7.4% of one core while idle and 9.5% while printing.
 
-Moonraker used slightly more CPU with native while idle, but about a fifth less
-than with HarkScreen during printing. See [performance and responsiveness](PERFORMANCE.md) for the
-measurements and test conditions.
+Moonraker is measured separately: native used more CPU during idle navigation
+and less during printing than HarkScreen. See [performance and responsiveness](PERFORMANCE.md)
+for the tables and test conditions.
 
 ## Installation
 
@@ -242,6 +242,8 @@ support needs backend work. One unit's environmental readings are not reused for
 
 - Adjust print speed and flow with steps or numeric entry, up to 200%.
 - Change Z offset for the current print, by at most 0.1 mm per adjustment.
+- Tuning values refresh when the page opens. If they take longer to arrive, the
+  shared loading indicator appears before the adjustment controls.
 - Calibrate with homing, Z tilt, full bed mesh, input shaping, belt tension and
   cutter calibration where supported. Z tilt requests homing if needed.
 - Save pending configuration changes with confirmation. During printing,
@@ -254,6 +256,10 @@ support needs backend work. One unit's environmental readings are not reused for
 | Save configuration | Calibration unavailable during printing |
 | --- | --- |
 | ![Save configuration](screenshots/save.png) | ![Calibration unavailable during printing](screenshots/calibrate-printing.png) |
+
+| Waiting for current tuning values |
+| --- |
+| ![Loading print adjustments](screenshots/tune-loading.png) |
 
 ### Filament activity
 

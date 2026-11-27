@@ -454,7 +454,7 @@ void views_refresh(void) {
             bool homed = strchr(S("status.toolhead.homed_axes"), "xyz"[i]) != NULL;
             moving = moving && homed;
             snprintf(value, sizeof(value), "%.2f", cJSON_IsNumber(p) ? p->valuedouble : 0);
-            label_update(app.positions[i], homed ? value : "—");
+            label_update(app.positions[i], homed && cJSON_IsNumber(p) ? value : "—");
             lv_obj_align(app.positions[i], LV_ALIGN_CENTER, 2, 0);
             if (moving) {
                 snprintf(value, sizeof(value), "%.2f", target->valuedouble);
@@ -1042,11 +1042,18 @@ static void colors_view(void) {
     button(app.content, jstr(app.draft, "color", ""), 0, 286, 673, 64, "color_hex", false);
     footer(NULL, NULL, "Done", "route:edit");
 }
+static void page_progress(const char *title, const char *detail);
+
 static void tune_view(void) {
     ui_tabs(false, "tune");
     if (!app.printing && !app.paused) {
         center_message("No print in progress", "Live adjustments become available during a print.",
                        "Choose a file", "open_files");
+        return;
+    }
+    if (!has("status.gcode_move.speed_factor") || !has("status.gcode_move.extrude_factor") ||
+        !has("status.gcode_move.homing_origin")) {
+        page_progress("Loading print adjustments", "Waiting for current printer values.");
         return;
     }
     const char *labels[] = {"Print speed", "Flow ratio"}, *keys[] = {"speed", "flow"},
@@ -1121,6 +1128,25 @@ static lv_obj_t *list_action(lv_obj_t *list, const char *name, int x, int y, con
     lv_obj_set_style_border_width(control, 0, LV_STATE_DEFAULT);
     return control;
 }
+void files_window_report(lv_obj_t *list) {
+    if (app.fixture || !app.service_link || strcmp(app.route, "files"))
+        return;
+    int first = lv_obj_get_scroll_y(list) / 88;
+    if (first < 0)
+        first = 0;
+    cJSON *request = cJSON_CreateObject();
+    cJSON_AddStringToObject(request, "action", "file_window");
+    cJSON_AddNumberToObject(request, "first", first);
+    cJSON_AddNumberToObject(request, "count", 7);
+    char *raw = cJSON_PrintUnformatted(request);
+    if (!platform_send(raw))
+        ui_transport_lost();
+    free(raw);
+    cJSON_Delete(request);
+}
+static void files_scrolled(lv_event_t *event) {
+    files_window_report(lv_event_get_target(event));
+}
 static void files_view(void) {
     button_fixed(app.content, "icon:refresh-cw", 600, 9, 64, 64, "refresh_files", false);
     const char *refresh = *S("files_refresh.error") ? "Refresh failed — tap refresh to retry" : "";
@@ -1128,6 +1154,7 @@ static void files_view(void) {
     lv_obj_set_height(status, 22);
     lv_label_set_long_mode(status, LV_LABEL_LONG_DOT);
     lv_obj_t *list = scroll_area(83, 462);
+    lv_obj_add_event_cb(list, files_scrolled, LV_EVENT_SCROLL_END, NULL);
     cJSON *f;
     int y = 0;
     cJSON_ArrayForEach(f, J("files")) {
@@ -1551,7 +1578,7 @@ static cJSON *active_operation(const char *action) {
     op = J("operation");
     return !strcmp(jstr(op, "action", ""), action) ? op : NULL;
 }
-static void network_progress(const char *title, const char *detail) {
+static void page_progress(const char *title, const char *detail) {
     lv_obj_t *group = box(app.content, 0, 0, 674, 1, false);
     lv_obj_clear_flag(group, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_style_bg_opa(group, 0, 0);
@@ -1580,7 +1607,7 @@ static void wifi_view(void) {
         char detail[180];
         const char *ssid = *app.wifi_ssid ? app.wifi_ssid : jstr(join, "ssid", "selected network");
         snprintf(detail, sizeof(detail), "Connecting to %s", ssid);
-        network_progress("Connecting to Wi-Fi", detail);
+        page_progress("Connecting to Wi-Fi", detail);
         return;
     }
     row(app.content, 90, "Network", *S("wifi.ssid") ? S("wifi.ssid") : "Not connected", "", NULL);
@@ -1591,7 +1618,7 @@ static void wifi_view(void) {
 static void wifi_networks(void) {
     if (active_operation("wifi_scan") ||
         (B("wifi.busy") && !strncmp(S("wifi.message"), "Scanning", 8))) {
-        network_progress("Scanning available networks", "Please wait…");
+        page_progress("Scanning available networks", "Please wait…");
         return;
     }
     lv_obj_t *list = scroll_area(88, 388);

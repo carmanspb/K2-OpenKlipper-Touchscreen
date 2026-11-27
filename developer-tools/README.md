@@ -25,10 +25,77 @@ printing/pausing or when the renderer leaves/disconnects. Newly discovered field
 renew the subscription without resetting the printer session. No CFS reads are
 made when the driver reports that none is fitted. Configuration and platform
 refreshes remain separate background tasks. Screen IPC starts with a full snapshot, then sends only changed top-level
-sections and explicit deletions. Unchanged sections stay in renderer memory.
+sections and individual changed printer-status objects, with explicit deletions. Unchanged sections stay in renderer memory.
 Every reconnect starts with another full snapshot; queued updates are consumed
 in order. The renderer and backend are installed together as one versioned unit.
 Errors, operation state and safety availability are transmitted regardless of the visible page.
+
+Startup overlaps printer initialization with file-list preparation as soon as a
+printer connection is available; optional previews never delay the ready screen.
+Heater limits are cached by configuration, axis bounds by configuration and live
+coordinate inputs, and UI availability by the policy's state dependencies.
+Executing an action still validates fresh printer state and configuration.
+
+The initial file list contains no eagerly generated thumbnails. The renderer
+requests seven rows at a time (visible rows plus a small lookahead), updating the
+window after scrolling. A single coalescing worker prepares those images and
+keeps unchanged previews. Moonraker file notifications update individual entries;
+directory changes, reconnects and manual refreshes reconcile the complete list.
+Events received during a listing request are replayed before publishing it.
+Opening Files reuses the listing while its event stream is healthy.
+
+Network addresses, Wi-Fi connection state and signal strength are read once at
+startup, immediately on entering Network/Ethernet/Wi-Fi pages, and periodically
+only while one of those pages is visible. Connection/scan operations retain their
+own progress reads. Other pages reuse the last network snapshot; USB detection
+and free-space checks continue in the background.
+
+Standard Moonraker subscriptions request only fields consumed by the interface
+and model. Coordinates are requested on a usable Move page, and tuning values
+on Tune during an active print. Dynamic CFS objects retain their complete
+subscription and discovery behavior. No temperature, operation, fault or touch
+refresh interval is reduced.
+
+Renderer publication is event driven. WebSocket status/file notifications, HTTP
+fallback results, action completions, worker progress and background resource
+changes invalidate the shared presentation and wake local socket clients.
+Unchanged telemetry still advances its timestamp/freshness bookkeeping without
+rebuilding the UI state. Quiet clients block in `select()` on their command
+socket and a coalesced wake channel; there is no periodic snapshot tick. Routine
+updates coalesce within the existing 200 ms window, and incoming commands bypass
+that coalescing delay. Optimistic target expiry has an explicit timer deadline.
+The poller retains screen sleep, CFS discovery, HTTP fallback and other background
+schedules, and announces their actual changes through the same publication path.
+
+One presentation is built per state revision and shared across local connections.
+Each connection still owns its encoder and gets an independent full baseline on
+connect/reconnect. File-list generation and history revision skip comparisons of
+unchanged large lists. Writers must call `notify_state()` (or `changed()` when
+advancing the UI sequence) after their state transaction, while holding the state
+lock when changing several related fields. File-list writers must also advance
+`file_generation`. Wi-Fi workers announce progress/completion through their
+callback; duplicate wakeups coalesce without accumulating a message queue.
+
+Derived slots, refill groups, heater presentation, preferences, Wi-Fi presentation
+and availability reuse cached sections until their input values change. Live
+publication tracks their printer-object dependencies by revision, avoiding input
+comparisons and copies when unrelated telemetry arrives. Local/configuration
+changes invalidate these dependencies conservatively; direct diagnostic snapshots
+retain mutation-safe value comparisons. The
+encoder also reuses those immutable sections. After the initial full IPC baseline,
+`status_set` replaces individual status objects and `status_remove` explicitly
+removes them. Unchanged status objects stay in renderer memory; omitted fields
+inside a replaced object do not survive. The encoder does not construct a full
+status JSON string for each telemetry patch. Both components must be installed
+from the same runtime package.
+
+Hardware serial and successfully read firmware version are cached for the service
+lifetime. Timezone and package version are checked every five minutes, and a
+screen timezone change invalidates that cache immediately. Network, USB and free
+space remain live background reads. Failed print previews back off up to one
+minute; a new print retries immediately. An unavailable material catalogue retries
+at most every thirty seconds per source epoch/revision. CFS initialization and
+Filament-page discovery retain their existing polling policy.
 
 Large static data is kept in atomic, versioned files under the installation's
 `native-screen-cache` directory:
@@ -459,6 +526,21 @@ refreshing them; a remote clock reset still invalidates the old configuration.
 The backend validates current settings again before printer actions. Connecting
 the screen never replays saved idle, light or CFS settings; it reads their live
 printer values. Only explicit user changes send preference commands.
+
+Display telemetry follows `action_policy.display_telemetry`: Move requests
+coordinates only when its ready/idle control policy allows movement; Tune
+requests speed, flow and offset only during an active print. Existing jog/home
+operation locks do not suppress their own visible motion. Home retains print
+progress, temperatures, CFS and fault state without subscribing to coordinates.
+Unused print counters and SD file offsets are excluded. Availability caching
+uses the policy's explicit input fields, so elapsed print time cannot rebuild it.
+
+A demand change renews the complete Moonraker subscription. Its response is the
+fresh page baseline; pending coordinates show a dash and movement/tuning controls
+wait for their values. Leaving a page drops its samples, and late old-subscription
+frames are filtered before copying/comparing. HTTP fallback requests the same
+display fields. Command validation continues to query full current printer state.
+See the [Moonraker subscription contract](https://moonraker.readthedocs.io/en/latest/external_api/printer/#subscribe-to-printer-object-status-updates).
 
 Touch state is cancelled on connection transitions and input-event loss. A press
 with no new input events for five seconds is cancelled without activating its
