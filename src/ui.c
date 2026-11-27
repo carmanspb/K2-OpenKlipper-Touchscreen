@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "screen.h"
+#include "../features/cartographer-toggle/cartographer_toggle.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -155,6 +156,7 @@ static void restart_begin(const char *action) {
 }
 static void restart_sent(const char *command) {
     cJSON *r = cJSON_Parse(command);
+    cartographer_sent(r);
     const char *a = jstr(r, "action", "");
     if (!strcmp(a, "restart") || !strcmp(a, "firmware_restart"))
         restart_begin(a);
@@ -171,6 +173,8 @@ void ui_transport_lost(void) {
     app.dirty = true;
 }
 static bool recovery_action(const char *action) {
+    if (!strcmp(action, "cartographer_dismiss"))
+        return true;
     const char *command = !strcmp(action, "confirmed") ? app.confirm : action;
     if (!strcmp(command, "restart:klipper") || !strcmp(command, "restart:firmware"))
         return true;
@@ -993,7 +997,7 @@ void ui_data(cJSON *data) {
     app.ever_service = true;
     ConnectionMode actual = connection_state();
     const char *printer_state = S("status.webhooks.state");
-    if (!app.restart_waiting && app.ever_ready &&
+    if (!cartographer_waiting() && !app.restart_waiting && app.ever_ready &&
         (!strcmp(printer_state, "startup") || (!*printer_state && !app.connected)))
         restart_begin("");
     if (app.restart_waiting) {
@@ -1371,6 +1375,11 @@ void ui_render(void) {
     app.extrusion_temp = NULL;
     app.status_label = app.time_label = app.layer_label = app.progress = app.percent = NULL;
     lv_obj_clean(app.content);
+    if (app.service_link && cartographer_screen()) {
+        app.rendered = true;
+        lv_obj_update_layout(app.screen);
+        return;
+    }
     ConnectionMode connection = ui_connection_mode();
     if (connection != CONNECTION_READY) {
         if (app.nav) {
@@ -1404,6 +1413,7 @@ void ui_update(void) {
         views_refresh();
 }
 void ui_tick(void) {
+    cartographer_tick();
     if (!app.restart_expired &&
         (app.restart_waiting || connection_state() == CONNECTION_STARTING) &&
         (uint32_t)(lv_tick_get() - app.restart_started) >= 60000) {

@@ -5,7 +5,12 @@ keep argument/fresh-state validation in Service.execute(), and bind a control to
 its action key. Accepted operations reserve resources before their thread starts.
 """
 
+import sys
 from dataclasses import dataclass, replace
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "features/cartographer-toggle"))
+import cartographer_toggle
 
 MAX_ACTIONS = 6
 
@@ -32,6 +37,7 @@ def rule(label, resources=(), *, idle=False, ready=True, interrupt=False, report
 
 
 ACTIONS = {
+    "cartographer": rule("Changing Cartographer", {"*"}, idle=True),
     "home": rule("Homing", MACHINE | {"fan:part"}, idle=True, report=True),
     "jog": rule("Moving", {"motion"}, idle=True),
     "position": rule("Moving", {"motion"}, idle=True),
@@ -124,6 +130,13 @@ def describe(request):
 def reason(request, status, connected, operations):
     spec = describe(request)
     operations = tuple(operations)
+    if any(op.get("action") == "cartographer" for op in operations):
+        return "Cartographer change in progress"
+    if request.get("action") == "cartographer":
+        # Feature-specific checks share the same backend contract as its UI.
+        reason = cartographer_toggle.blocked(status, connected, operations)
+        if reason:
+            return reason
     if request.get("action") in ("restart", "firmware_restart"):
         return (
             "Restart in progress"
@@ -287,6 +300,8 @@ def availability_inputs(status, connected, operations):
         status.get("webhooks", {}).get("state", "ready"),
         status.get("toolhead", {}).get("homed_axes", ""),
         status.get("print_stats", {}).get("state"),
+        status.get("idle_timeout", {}).get("state"),
+        status.get("k2_motor_bus", {}).get("motors_ready"),
         status.get("print_stats", {}).get("filename", ""),
         tuple(key in status.get("gcode_move", {}) for key in ("position", "gcode_position", "speed_factor", "extrude_factor", "homing_origin")),
         status.get("filament_switch_sensor filament_sensor", {}).get("filament_detected"),

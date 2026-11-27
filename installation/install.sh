@@ -15,6 +15,8 @@ STAGE=$ROOT.new
 mkdir -p "$STAGE" "$CONF"
 cp -a "$PACKAGE/." "$STAGE/"
 cp -a "$SRC/backend" "$STAGE/backend"
+mkdir -p "$STAGE/features/cartographer-toggle"
+cp "$SRC/features/cartographer-toggle/cartographer_toggle.py" "$STAGE/features/cartographer-toggle/"
 cp "$SRC/runtime/start.sh" "$SRC/runtime/launch.py" "$STAGE/"
 cp "$SRC/installation/uninstall.sh" "$SRC/installation/uninstall.py" "$STAGE/"
 chmod 755 "$STAGE/openklipper-screen" "$STAGE/start.sh" "$STAGE/uninstall.sh"
