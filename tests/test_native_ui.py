@@ -365,6 +365,41 @@ class NativeUI(unittest.TestCase):
    self.assertTrue(all(y>=250 and y+h<=466 for x,y,w,h in rows))
   self.assertEqual(len(set(pictures)),3)
 
+ def test_long_mesh_names_only_scroll_while_held(self):
+  import sys
+  from PIL import Image
+  sys.path.insert(0,str(ROOT/'developer-tools'))
+  import demo_snapshot
+  data=demo_snapshot.preview_case('mesh')
+  long_name='A very long mesh name for the installed textured build plate'
+  profiles=data['status']['bed_mesh']['profiles']
+  profiles[long_name]=profiles.pop('Demo bed')
+  data['status']['bed_mesh']['profile_name']=long_name
+  # This name is the third row and also appears in the preview header.
+  for point,region in (([580,420],(538,408,650,449)),([580,120],(533,103,707,137))):
+   self.render('mesh',data=data)
+   with Image.open(self.path/'screen.ppm') as image: idle=image.crop(region).tobytes()
+   self.render('mesh',[{'advance_ms':1800}],data)
+   with Image.open(self.path/'screen.ppm') as image: self.assertEqual(image.crop(region).tobytes(),idle)
+   hold=[{'queue_touch':point+[True]},{'advance_ms':700},{'advance_ms':1200}]
+   _,commands=self.render('mesh',hold,data)
+   self.assertEqual(commands,[])
+   with Image.open(self.path/'screen.ppm') as image: self.assertNotEqual(image.crop(region).tobytes(),idle)
+   _,commands=self.render('mesh',hold+[{'queue_touch':point+[False]}],data)
+   self.assertEqual(commands,[])
+   with Image.open(self.path/'screen.ppm') as image: self.assertEqual(image.crop(region).tobytes(),idle)
+
+ def test_holding_an_unselected_mesh_name_does_not_select_or_load_it(self):
+  import sys
+  sys.path.insert(0,str(ROOT/'developer-tools'))
+  import demo_snapshot
+  point=[580,350]
+  actions=[{'queue_touch':point+[True]},{'advance_ms':700},
+           {'advance_ms':1000},{'queue_touch':point+[False]}]
+  items,commands=self.render('mesh',actions,demo_snapshot.preview_case('mesh'))
+  self.assertEqual(commands,[])
+  self.assertEqual([i['action'] for i in items if i['action'].startswith('mesh:rename:')],['mesh:rename:0'])
+
  def test_mesh_rotation_stops_at_upright_limits(self):
   import sys
   sys.path.insert(0,str(ROOT/'developer-tools'))

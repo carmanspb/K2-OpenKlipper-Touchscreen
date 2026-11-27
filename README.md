@@ -151,8 +151,8 @@ service has its own reconnecting screen. The previous page returns after reconne
   without loading a mesh. Each row has borderless Load and Delete icons; a check
   marks the loaded profile. Rename the displayed profile using the pencil beside
   its title; an unloaded preview also has a Load icon beside the pencil. Long
-  selected names scroll horizontally. Profile actions preserve
-  the list position.
+  names stay still and end with an ellipsis. Hold a name to scroll it; release
+  to restore the truncated view. Profile actions preserve the list position.
   Renaming an unloaded profile restores the previously loaded profile. Renaming
   another profile is blocked while the current mesh is unsaved.
 - The list has no header or Save action and shows three full profiles at once.
@@ -172,6 +172,10 @@ service has its own reconnecting screen. The previous page returns after reconne
 | Rename the displayed mesh | Prepare the bed before probing |
 | --- | --- |
 | ![Rename mesh](screenshots/mesh-rename.png) | ![Bed preparation confirmation](screenshots/mesh-probe.png) |
+
+| Long name at rest | Hold the name to read it |
+| --- | --- |
+| ![Truncated mesh names](screenshots/mesh-long-name.png) | ![Held mesh name scrolling](screenshots/mesh-long-name-held.png) |
 
 | Saved profiles, none active | No measured or saved mesh |
 | --- | --- |

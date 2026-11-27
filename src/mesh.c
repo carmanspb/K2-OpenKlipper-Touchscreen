@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 200809L
 /* Bed mesh inspection and profile controls.
  * Layout reference: HelixScreen's visualization / current mesh / profiles cards.
  * This is an independent LVGL 8 implementation, not copied HelixScreen code. */
@@ -17,6 +18,22 @@ static lv_img_dsc_t *front_text;
 static int profile_scroll;
 static void remember_profile_scroll(lv_event_t *event) {
     profile_scroll = lv_obj_get_scroll_y(lv_event_get_target(event));
+}
+/* Holding a name reveals it without turning the release into a selection. */
+static void name_event(lv_event_t *event) {
+    lv_obj_t *target = lv_event_get_target(event);
+    lv_obj_t *label = lv_event_get_user_data(event);
+    lv_event_code_t code = lv_event_get_code(event);
+    if (code == LV_EVENT_LONG_PRESSED)
+        lv_label_set_long_mode(label, LV_LABEL_LONG_SCROLL_CIRCULAR);
+    else if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST)
+        lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
+    else if (code == LV_EVENT_SHORT_CLICKED) {
+        const char *action = lv_obj_get_user_data(target);
+        if (action)
+            ui_action(action);
+    } else if (code == LV_EVENT_DELETE)
+        free(lv_obj_get_user_data(target));
 }
 static lv_color_t rgb(unsigned value) {
     return lv_color_hex(value);
@@ -397,7 +414,10 @@ void mesh_view(void) {
     lv_obj_t *name =
         text(info, valid ? (*preview_profile ? preview_profile : profile_name) : "No mesh loaded",
              16, 16, shown_loaded ? 180 : 128, &font_ui_20, false);
-    lv_label_set_long_mode(name, LV_LABEL_LONG_SCROLL_CIRCULAR);
+    lv_obj_set_height(name, lv_font_get_line_height(&font_ui_20));
+    lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
+    lv_obj_add_flag(name, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(name, name_event, LV_EVENT_ALL, name);
     int shown_index = 0;
     cJSON *shown_item;
     cJSON_ArrayForEach(shown_item, J("status.bed_mesh.profiles")) {
@@ -460,12 +480,16 @@ void mesh_view(void) {
         lv_obj_clear_flag(row, LV_OBJ_FLAG_CLICKABLE);
         char action[48];
         snprintf(action, sizeof(action), "mesh:preview:%d", index);
-        lv_obj_t *choose = button_fixed(row, "", 0, 0, 128, 64, action, false);
+        lv_obj_t *choose = box(row, 0, 0, 128, 64, false);
+        lv_obj_add_flag(choose, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_user_data(choose, strdup(action));
         lv_obj_set_style_bg_opa(choose, 0, 0);
         lv_obj_set_style_border_width(choose, 0, 0);
         lv_obj_t *label = text(choose, profile->string, 8, 21, 112, &font_ui_17, false);
         lv_obj_clear_flag(label, LV_OBJ_FLAG_CLICKABLE);
-        lv_label_set_long_mode(label, selected ? LV_LABEL_LONG_SCROLL_CIRCULAR : LV_LABEL_LONG_DOT);
+        lv_obj_set_height(label, lv_font_get_line_height(&font_ui_17));
+        lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
+        lv_obj_add_event_cb(choose, name_event, LV_EVENT_ALL, label);
         snprintf(action, sizeof(action), "mesh:load:%d", index);
         lv_obj_t *load = button_fixed(row, "", 128, 0, 52, 64, active ? NULL : action, false);
         lv_obj_set_style_bg_opa(load, 0, 0);

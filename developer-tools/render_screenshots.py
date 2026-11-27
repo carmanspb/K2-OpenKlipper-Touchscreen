@@ -41,6 +41,12 @@ def main():
             ("move", "move", "heated", []),
             ("mesh", "mesh", "mesh", []),
             ("mesh-selected", "mesh", "mesh", ["mesh:preview:1"]),
+            ("mesh-long-name", "mesh", "mesh", []),
+            ("mesh-long-name-held", "mesh", "mesh", [
+                {"queue_touch": [580, 420, True]},
+                {"advance_ms": 700},
+                {"advance_ms": 1200},
+            ]),
             ("mesh-rotated", "mesh", "mesh", [
                 {"queue_touch": [300, 240, True]},
                 {"queue_touch": [490, 300, True]},
@@ -185,6 +191,11 @@ def main():
             }
             if name == "tune-loading":
                 data["status"].pop("gcode_move", None)
+            if name.startswith("mesh-long-name"):
+                mesh = data["status"]["bed_mesh"]
+                title = "A very long mesh name for the installed textured build plate"
+                mesh["profiles"][title] = mesh["profiles"].pop("Demo bed")
+                mesh["profile_name"] = title
             if name == "print-starting":
                 data["platform"].update(
                     starting_file="Demo print.gcode",
