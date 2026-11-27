@@ -36,7 +36,8 @@ assume this component is integrated into K2 OpenKlipper's `touchscreen/` folder.
 ## Package validation before merging
 
 `Request PR package validation` dispatches validation when a PR changes or main
-advances. Its `pull_request_target` job handles GitHub metadata only; it never
+advances. Title and description edits do not dispatch package validation; base-
+branch edits still do. Its `pull_request_target` job handles GitHub metadata only; it never
 checks out PR code. The dispatched workflow is always loaded from main.
 
 `Prepare and validate PR package` merges the current main into the PR branch,
