@@ -16,6 +16,34 @@ sys.path.insert(0, str(ROOT / "installation"))
 from validate_package import fingerprint, source_inputs, validate
 
 
+def copy_png(source, destination):
+    """Copy PNG chunks verbatim except build-time timestamp metadata."""
+    data = source.read_bytes()
+    if data[:8] != b"\x89PNG\r\n\x1a\n":
+        raise ValueError(f"Invalid PNG signature: {source}")
+    output = bytearray(data[:8])
+    offset = 8
+    while offset + 12 <= len(data):
+        length = struct.unpack_from(">I", data, offset)[0]
+        kind = data[offset + 4:offset + 8]
+        end = offset + 12 + length
+        if end > len(data):
+            raise ValueError(f"Truncated PNG chunk: {source}")
+        timestamp = kind == b"tIME"
+        if kind in (b"tEXt", b"zTXt", b"iTXt"):
+            keyword = data[offset + 8:offset + 8 + length].split(b"\0", 1)[0].lower()
+            timestamp = keyword.startswith(b"date:") or keyword in (b"creation time", b"modification time")
+        if not timestamp:
+            output.extend(data[offset:end])
+        offset = end
+        if kind == b"IEND":
+            if length or offset != len(data):
+                raise ValueError(f"Invalid PNG end: {source}")
+            destination.write_bytes(output)
+            return
+    raise ValueError(f"Missing PNG end: {source}")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--build", type=Path, default=ROOT / "out/arm")
@@ -39,7 +67,7 @@ def main():
         repo = integration if context_file else component_repo
         git_path = name.removeprefix("touchscreen/") if args.integration_root and not context_file else name
         recorded = subprocess.run(
-            ["git", "-C", str(repo), "show", "HEAD:" + git_path], capture_output=True
+            ["git", "-C", str(repo), "show", "HEAD:" + git_path], capture_output=True, check=False
         )
         if recorded.returncode or hashlib.sha256(recorded.stdout).hexdigest() != digest:
             raise SystemExit(
@@ -53,9 +81,9 @@ def main():
     shutil.copy2(binary, package / binary.name)
     (package / binary.name).chmod(0o755)
     for source in (ROOT / "assets/generated").glob("*.png"):
-        shutil.copy2(source, package / "assets" / source.name)
+        copy_png(source, package / "assets" / source.name)
     for source in (ROOT / "assets").glob("printer-*.png"):
-        shutil.copy2(source, package / "assets" / source.name)
+        copy_png(source, package / "assets" / source.name)
     shutil.copy2(ROOT / "LICENSE", package / "licenses/Touchscreen-LICENSE")
     for source in (ROOT / "assets").glob("*-LICENSE"):
         shutil.copy2(source, package / "licenses" / source.name)
