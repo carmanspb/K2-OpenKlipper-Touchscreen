@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "screen.h"
+#include "../features/cartographer-toggle/cartographer_toggle.h"
 #include <math.h>
 #include <ctype.h>
 #include <stdio.h>
@@ -1435,12 +1436,20 @@ static void mapping_pick(void) {
 
 static void settings_view(void) {
     ui_tabs(true, "settings");
-    row(app.content, 100, "Display & appearance", "›", "Brightness and highlights",
-        "route:display");
-    row(app.content, 212, "Light & idle timers", "›", "Automatic switch-off", "route:timers");
-    if (fitted())
-        row(app.content, 324, "CFS preferences", "›", "Reading and automatic refill",
-            "route:refill");
+    bool cartographer = B("cartographer.available");
+    lv_obj_t *parent = cartographer ? scroll_area(90, 470) : app.content;
+    int y = cartographer ? 0 : 100;
+    int pitch = cartographer ? SETTINGS_ROW_PITCH : 112;
+    row(parent, y, "Display & appearance", "›", "Brightness and highlights", "route:display");
+    row(parent, y + pitch, "Light & idle timers", "›", "Automatic switch-off", "route:timers");
+    y += 2 * pitch;
+    if (fitted()) {
+        row(parent, y, "CFS preferences", "›", "Reading and automatic refill", "route:refill");
+        y += pitch;
+    }
+    if (cartographer)
+        row(parent, y, "Cartographer", "›", B("cartographer.enabled") ? "On" : "Off",
+            "route:cartographer");
 }
 static void choices(int y, const char *title, const char *key, const int *values,
                     const char **labels, int count, int current) {
@@ -2027,6 +2036,8 @@ void views_render(void) {
         title = "Auto refill sequence";
     else if (!strcmp(p, "display"))
         title = "Display & appearance";
+    else if (!strcmp(p, "cartographer"))
+        title = "Cartographer";
     else if (!strcmp(p, "timers"))
         title = "Light & idle timers";
     else if (!strcmp(p, "wifi"))
@@ -2097,6 +2108,8 @@ void views_render(void) {
         mapping_pick();
     else if (!strcmp(p, "settings"))
         settings_view();
+    else if (!strcmp(p, "cartographer"))
+        cartographer_view();
     else if (!strcmp(p, "display"))
         display_view();
     else if (!strcmp(p, "timers"))
@@ -2398,7 +2411,8 @@ bool views_control_key(const char *action, char *key, size_t size) {
             snprintf(key, size, "%s", pairs[i][1]);
             return true;
         }
-    const char *names[][2] = {{"usb_format", "usb_format"},
+    const char *names[][2] = {{"cartographer_toggle", "cartographer"},
+                              {"usb_format", "usb_format"},
                               {"load", "load"},
                               {"unload", "unload"},
                               {"edit_slot", "slot_save"},
@@ -2426,6 +2440,8 @@ bool views_control_key(const char *action, char *key, size_t size) {
     return false;
 }
 void views_action(const char *a) {
+    if (cartographer_action(a))
+        return;
     if (mesh_action(a))
         return;
     if (!strncmp(a, "timezone_pick:", 14)) {

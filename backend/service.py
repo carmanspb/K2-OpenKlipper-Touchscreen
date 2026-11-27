@@ -40,6 +40,8 @@ from state_updates import WakeChannel
 import platform_services as platform
 import storage
 
+cartographer_toggle = action_policy.cartographer_toggle
+
 OBJECTS = (
     "webhooks",
     "print_stats",
@@ -109,7 +111,7 @@ PRESENTATION_OBJECTS = {
     "refill": ("hark_cfs_slots",),
     "heaters": ("extruder", "heater_bed", "hark_chamber", "temperature_sensor chamber_temperature"),
     "axes": ("gcode_move",),
-    "availability": ("webhooks", "toolhead", "gcode_move", "print_stats", "k2_cfs", "filament_switch_sensor filament_sensor"),
+    "availability": ("webhooks", "toolhead", "gcode_move", "print_stats", "k2_cfs", "filament_switch_sensor filament_sensor", "idle_timeout", "k2_motor_bus"),
     "prefs": ("gcode_macro _LIGHT_IDLE", "idle_timeout", "gcode_macro _RUNOUT_REFILL"),
     "filament_activity": ("k2_cfs", "hark_cfs_slots"),
     "cfs_units": ("k2_cfs", "hark_cfs_slots"),
@@ -383,6 +385,61 @@ class Service:
         self.preview_retry = (None, 0.0, 0)
         self.catalogue_retry = (None, 0.0)
         self.artwork_key = None
+        self.cartographer = cartographer_toggle.Integration()
+        self.cartographer_state = {"available": False, "busy": False}
+        self.cartographer_lock = threading.Lock()
+        self.refresh_cartographer()
+
+    def refresh_cartographer(self):
+        if not self.cartographer_lock.acquire(blocking=False):
+            return
+        try:
+            with self.lock:
+                if self.cartographer_state.get("busy"):
+                    return
+            detected = self.cartographer.inspect()
+            with self.lock:
+                state = dict(detected, busy=False)
+                if self.cartographer_state.get("error"):
+                    state["error"] = self.cartographer_state["error"]
+                if state != self.cartographer_state:
+                    self.cartographer_state = state
+                    self.changed()
+        finally:
+            self.cartographer_lock.release()
+
+    def set_cartographer(self, request):
+        if request.get("confirm") is not True or type(request.get("enabled")) is not bool:
+            raise ValueError("Cartographer changes require confirmation and an on/off value")
+        desired = request["enabled"]
+        self.refresh_cartographer()
+        with self.lock:
+            if not self.cartographer_state.get("available"):
+                raise ValueError("Compatible Cartographer integration is not installed")
+            self.cartographer_state = dict(self.cartographer_state, busy=True, desired=desired, error="")
+            self.changed()
+        try:
+            status, _ = self.fresh(idle=True)
+            with self.lock:
+                other = [op for op in self.operations.values() if op.get("action") != "cartographer"]
+                reason = cartographer_toggle.blocked(status, self.connected, other)
+            if reason:
+                raise action_policy.ActionBusy(reason)
+            self.cartographer.apply(desired, self.mr.base)
+            cartographer_toggle.verify_runtime(self.mr, desired)
+            self.fresh(idle=True)
+            state = self.cartographer.inspect()
+            if not state.get("available") or state.get("enabled") is not desired or state.get("restart_pending"):
+                raise RuntimeError("Cartographer configuration could not be verified")
+            with self.lock:
+                self.cartographer_state = dict(state, busy=False)
+                self.changed()
+        except Exception as error:
+            state = self.cartographer.inspect()
+            with self.lock:
+                self.cartographer_state = dict(state, busy=False, error=str(error))
+                self.changed()
+            raise
 
     def notify_state(self, objects=None):
         """Every asynchronous UI-state writer invalidates and wakes publication."""
@@ -552,7 +609,21 @@ class Service:
             blocked = action_policy.reason(
                 request, self.status, self.connected, self.operations.values()
             )
+            if action == "cartographer" and not self.cartographer_state.get("available"):
+                blocked = "Compatible Cartographer integration is not installed"
             if blocked:
+                if action == "cartographer":
+                    # The renderer already shows pending progress after send.
+                    # A rejected request never gets a worker/completion, so
+                    # acknowledge it here instead of leaving that screen waiting.
+                    self.operation_id += 1
+                    self.result = {
+                        "id": self.operation_id, "action": action,
+                        "success": False, "rejected": True, "error": blocked,
+                    }
+                    self.results.append(self.result)
+                    self.cartographer_state = dict(self.cartographer_state, error=blocked)
+                    self.changed()
                 raise action_policy.ActionBusy(blocked)
             if action == "file":
                 self.selection_id += 1
@@ -873,6 +944,7 @@ class Service:
                     status.get("webhooks", {}).get("state_message") or "Printer stopped"
                 )
             return {
+                "cartographer": self.cartographer_state,
                 "session": self.session,
                 "printer_generation": self.printer_generation,
                 "sequence": self.sequence,
@@ -944,6 +1016,9 @@ class Service:
 
     def execute(self, r):
         action = r.get("action")
+        if action == "cartographer":
+            self.set_cartographer(r)
+            return
         if action in ("restart", "firmware_restart"):
             if r.get("confirm") is not True:
                 raise ValueError("Restart requires confirmation")
@@ -2703,7 +2778,7 @@ class Service:
                     # the initial full state on every connection.
                     encoded = encoder.encode(value, immutable=(
                         "heaters", "slots", "axes", "availability", "prefs",
-                        "filament_activity", "refill", "wifi",
+                        "filament_activity", "refill", "wifi", "cartographer",
                     ), revisions={"files": self.file_generation, "events": self.history_id})
                 # Routine events coalesce within 200 ms; quiet clients block.
                 # Commands bypass coalescing and timers retain explicit deadlines.

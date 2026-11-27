@@ -12,7 +12,7 @@ from pathlib import Path
 def source_inputs(source, integration_root=None):
     source = Path(source)
     paths = []
-    for folder in ("src", "backend", "runtime", "build", "installation", "assets"):
+    for folder in ("src", "backend", "features", "runtime", "build", "installation", "assets"):
         paths.extend(
             p
             for p in (source / folder).rglob("*")
@@ -21,6 +21,10 @@ def source_inputs(source, integration_root=None):
                 part in ("__pycache__", "generated")
                 for part in p.relative_to(source).parts
             )
+            and (folder != "features" or (
+                "tests" not in p.relative_to(source).parts
+                and p.suffix in (".py", ".json", ".c", ".h")
+            ))
         )
     paths += [
         source / "developer-tools" / name

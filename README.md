@@ -338,6 +338,13 @@ are not used to guess material.
 
 ## Settings
 
+When our standalone Cartographer add-on is installed, **Settings → General →
+Cartographer** provides an On/Off toggle. A confirmed change restarts Klipper
+under a dedicated progress screen and returns to the setting when complete.
+The toggle is disabled during printing or another operation. Installation is
+checked at screen startup, without periodic polling. See the
+[Cartographer setting](features/cartographer-toggle/README.md) for details.
+
 | General settings | Network settings |
 | --- | --- |
 | ![General settings](screenshots/general.png) | ![Network settings](screenshots/network.png) |
