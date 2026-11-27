@@ -217,7 +217,15 @@ def preview_scenario(name="idle", printing=False):
     }
     data["status"]["bed_mesh"]["profiles"] = {
         title: {
-            "points": [[round(value + offset, 3) for value in row] for row in points],
+            "points": [
+                [round(value + offset + (
+                    0 if title == "Demo bed" else
+                    .045 * ((c - 4) / 4) ** 2 - .03 * ((r - 4) / 4)
+                    if title == "PLA 60C" else
+                    .09 * math.cos(math.pi * (c - 4) / 4) * math.cos(math.pi * (r - 4) / 4)
+                ), 3) for c, value in enumerate(row)]
+                for r, row in enumerate(points)
+            ],
             "mesh_params": {
                 "min_x": 10,
                 "max_x": 290,

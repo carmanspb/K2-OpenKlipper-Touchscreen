@@ -264,7 +264,8 @@ sh touchscreen/developer-tools/preview.sh --case motors-on
 sh touchscreen/developer-tools/preview.sh --case motors-off
 ```
 
-The mesh case contains a synthetic 9-by-9 surface and three saved profiles.
+The mesh case contains three distinct synthetic 9-by-9 surfaces. Tap each name
+to preview its shape without loading it. All three rows fit without scrolling.
 The layout pairs a shaded surface with current-mesh statistics and a scrollable
 profile list, following the useful arrangement in [HelixScreen](https://helixscreen.org/guide/calibration/).
 Its renderer and controls are implemented independently for our LVGL 8 application.

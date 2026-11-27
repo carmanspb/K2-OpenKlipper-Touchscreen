@@ -1164,34 +1164,45 @@ class Service:
                 raise ValueError(
                     "Use 1–64 letters, numbers, spaces, dots, hyphens or underscores"
                 )
-            if operation not in ("load", "save", "rename", "delete"):
+            if operation not in ("load", "rename", "delete"):
                 raise ValueError("Unknown mesh profile operation")
-            if operation != "save" and name not in profiles:
+            if name not in profiles:
                 raise ValueError("Mesh profile no longer exists")
             if operation == "load":
                 command = "BED_MESH_PROFILE LOAD=" + json.dumps(name)
             elif operation == "delete":
                 command = "BED_MESH_PROFILE REMOVE=" + json.dumps(name)
             else:
-                target = new_name if operation == "rename" else name
+                target = new_name
                 if target == "default":
                     raise ValueError(
                         "Choose a name other than the reserved default profile"
                     )
                 if target in profiles:
                     raise ValueError("A mesh profile with that name already exists")
-                if (
-                    operation == "rename"
-                    and status.get("bed_mesh", {}).get("profile_name") != name
-                ):
-                    raise ValueError("Load this profile before renaming it")
-                points = status.get("bed_mesh", {}).get("probed_matrix", [])
-                if not points:
-                    raise ValueError("Measure or load a mesh before saving it")
-                command = "BED_MESH_PROFILE SAVE=" + json.dumps(target)
-                if operation == "rename":
-                    command += "\nBED_MESH_PROFILE LOAD=" + json.dumps(target)
-                    command += "\nBED_MESH_PROFILE REMOVE=" + json.dumps(name)
+                mesh = status.get("bed_mesh", {})
+                current = mesh.get("profile_name", "")
+                if not current and mesh.get("probed_matrix"):
+                    raise ValueError(
+                        "Cannot rename another profile while the current mesh is unsaved"
+                    )
+                commands = []
+                if current != name:
+                    commands.append("BED_MESH_PROFILE LOAD=" + json.dumps(name))
+                commands.extend(
+                    [
+                        "BED_MESH_PROFILE SAVE=" + json.dumps(target),
+                        "BED_MESH_PROFILE LOAD=" + json.dumps(target),
+                        "BED_MESH_PROFILE REMOVE=" + json.dumps(name),
+                    ]
+                )
+                if current != name:
+                    commands.append(
+                        "BED_MESH_PROFILE LOAD=" + json.dumps(current)
+                        if current
+                        else "BED_MESH_CLEAR"
+                    )
+                command = "\n".join(commands)
             self.gcode(command)
         elif action == "calibrate":
             commands = {

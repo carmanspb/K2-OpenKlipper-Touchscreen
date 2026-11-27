@@ -316,7 +316,83 @@ class NativeUI(unittest.TestCase):
   data=demo_snapshot.preview_case('mesh-printing')
   items,commands=self.render('mesh',['mesh:save','mesh:load:1','mesh:delete:1','confirmed'],data)
   self.assertEqual(commands,[])
-  self.assertTrue(all(not i['enabled'] for i in items if i['action'].startswith('mesh:')))
+  self.assertTrue(all(not i['enabled'] for i in items if i['action'].startswith('mesh:') and not i['action'].startswith('mesh:preview:')))
+
+ def test_saved_mesh_preview_is_local_and_rename_is_available_for_every_profile(self):
+  import sys
+  sys.path.insert(0,str(ROOT/'developer-tools'))
+  import demo_snapshot
+  for case in ('mesh-unloaded','mesh-printing'):
+   items,commands=self.render('mesh',['mesh:preview:1'],demo_snapshot.preview_case(case))
+   self.assertEqual(commands,[])
+   self.assertTrue(any(i['action']=='mesh_reset' for i in items))
+   self.assertTrue(any(i['action']=='mesh:rename:1' for i in items))
+
+ def test_mesh_profile_name_selects_preview_and_moves_rename_to_header(self):
+  import sys
+  sys.path.insert(0,str(ROOT/'developer-tools'))
+  import demo_snapshot
+  items,commands=self.render('mesh',[{'tap':[580,350]}],demo_snapshot.preview_case('mesh'))
+  self.assertEqual(commands,[])
+  edits=[i for i in items if i['action'].startswith('mesh:rename:')]
+  self.assertEqual(len(edits),1)
+  self.assertEqual(edits[0]['action'],'mesh:rename:1')
+  self.assertLess(edits[0]['rect'][1],150)
+  self.assert_rect(items,'mesh:preview:1',[530,327,128,64])
+  loads=[i for i in items if i['action']=='mesh:load:1']
+  self.assertEqual(len(loads),2)
+  for item,want in zip(loads,[[717,90,52,52],[658,327,52,64]]):
+   for got,expected in zip(item['rect'],want): self.assertLessEqual(abs(got-expected),1)
+  self.assertEqual(edits[0]['rect'][1:],[loads[0]['rect'][1],52,52])
+  self.assert_rect(items,'mesh:delete:1',[710,327,52,64])
+
+ def test_mesh_selection_changes_rendered_surface_without_loading(self):
+  import sys
+  from PIL import Image
+  sys.path.insert(0,str(ROOT/'developer-tools'))
+  import demo_snapshot
+  data=demo_snapshot.preview_case('mesh')
+  pictures=[]
+  for index,y in enumerate((290,350,420)):
+   items,commands=self.render('mesh',[{'tap':[580,y]}],data)
+   self.assertEqual(commands,[])
+   self.assertFalse(any(i['action']=='mesh:save' for i in items))
+   self.assertEqual([i['action'] for i in items if i['action'].startswith('mesh:rename:')],['mesh:rename:'+str(index)])
+   with Image.open(self.path/'screen.ppm') as picture:
+    pictures.append(picture.crop((110,96,500,366)).tobytes())
+   rows=[i['rect'] for i in items if i['action'].startswith('mesh:preview:')]
+   self.assertEqual(len(rows),3)
+   self.assertTrue(all(y>=250 and y+h<=466 for x,y,w,h in rows))
+  self.assertEqual(len(set(pictures)),3)
+
+ def test_mesh_rotation_stops_at_upright_limits(self):
+  import sys
+  sys.path.insert(0,str(ROOT/'developer-tools'))
+  import demo_snapshot
+  data=demo_snapshot.preview_case('mesh')
+  drag=[{'queue_touch':[300,180,True]},{'queue_touch':[490,350,True]},
+        {'queue_touch':[490,350,False]}]
+  self.render('mesh',drag,data)
+  limited=(self.path/'screen.ppm').read_bytes()
+  _,commands=self.render('mesh',drag+drag,data)
+  self.assertEqual(commands,[])
+  self.assertEqual((self.path/'screen.ppm').read_bytes(),limited)
+
+ def test_profile_scroll_survives_preview_and_loading(self):
+  import sys
+  sys.path.insert(0,str(ROOT/'developer-tools'))
+  import demo_snapshot
+  data=demo_snapshot.preview_case('mesh')
+  profile=next(iter(data['status']['bed_mesh']['profiles'].values()))
+  data['status']['bed_mesh']['profiles']={str(n):profile for n in range(20)}
+  drag=[{'queue_touch':[650,y,True]} for y in (430,410,390,370,350)]
+  drag.append({'queue_touch':[650,350,False]})
+  items,_=self.render('mesh',drag,data)
+  before=next(i['rect'][1] for i in items if i['action']=='mesh:delete:0')
+  for action in ('mesh:preview:3','mesh:load:3','mesh:rename:3'):
+   items,_=self.render('mesh',drag+[action],data)
+   after=next(i['rect'][1] for i in items if i['action']=='mesh:delete:0')
+   self.assertEqual(after,before)
 
  def test_empty_mesh_has_one_probe_action_or_idle_instruction(self):
   import sys
