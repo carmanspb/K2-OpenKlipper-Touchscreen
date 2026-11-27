@@ -41,12 +41,17 @@ jobs:
         with:
           script: |
             if (!/^[1-9][0-9]*$/.test(process.env.PR_NUMBER)) throw new Error('Invalid PR number');
-            const { data: pr } = await github.rest.pulls.get({ ...context.repo, pull_number: Number(process.env.PR_NUMBER) });
+            const [pull, main] = await Promise.all([
+              github.rest.pulls.get({ ...context.repo, pull_number: Number(process.env.PR_NUMBER) }),
+              github.rest.git.getRef({ ...context.repo, ref: 'heads/main' })
+            ]);
+            const pr = pull.data;
             const active = pr.state === 'open' && pr.base.ref === 'main' && !pr.draft;
             core.setOutput('active', active);
             core.setOutput('number', pr.number);
             core.setOutput('head', pr.head.sha);
-            core.setOutput('base', pr.base.sha);
+            // The PR's base SHA can lag the live branch tip.
+            core.setOutput('base', main.data.object.sha);
             core.setOutput('branch', pr.head.ref);
             core.setOutput('same_repo', pr.head.repo?.full_name === `${context.repo.owner}/${context.repo.repo}`);
 
@@ -271,8 +276,12 @@ jobs:
             // Cancellation means a replacement run or a user stopped this
             // attempt; it is not evidence of a source/package failure.
             if (process.env.BUILD_RESULT === 'cancelled' || process.env.PUBLISH_RESULT === 'cancelled') return;
-            const { data: pr } = await github.rest.pulls.get({ ...context.repo, pull_number: Number(process.env.PR_NUMBER) });
-            if (pr.state !== 'open' || pr.head.sha !== process.env.EXPECTED_HEAD || pr.base.sha !== process.env.EXPECTED_BASE) return;
+            const [pull, main] = await Promise.all([
+              github.rest.pulls.get({ ...context.repo, pull_number: Number(process.env.PR_NUMBER) }),
+              github.rest.git.getRef({ ...context.repo, ref: 'heads/main' })
+            ]);
+            const pr = pull.data;
+            if (pr.state !== 'open' || pr.head.sha !== process.env.EXPECTED_HEAD || main.data.object.sha !== process.env.EXPECTED_BASE) return;
             const branchIsFinal = process.env.SAME_REPO === 'true'
               ? process.env.PUBLISH_RESULT === 'success' && process.env.CHANGED === 'false'
               : process.env.SOURCE_SHA === pr.head.sha && process.env.PACKAGE_CHANGED === 'false';
