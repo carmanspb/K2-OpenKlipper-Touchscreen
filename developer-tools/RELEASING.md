@@ -80,7 +80,11 @@ understand. Most fix releases need none.
 The downloadable ARM package must contain everything needed for the touchscreen
 runtime: the ARM executable, matching Python backend, assets, startup scripts,
 required feature helpers, version and checksum metadata, and license notices.
-Include a short README with supported systems and installation instructions.
+Keep the packaged README very short: link to the main touchscreen guide and
+list common commands for starting/restarting the screen, checking uninstall and
+uninstalling. Include configuration/log locations and a brief uninstall warning.
+Keep detailed features, settings, compatibility and installation steps in the
+linked guide and release notes.
 Ship installation/migration helpers when the supported installation path needs
 them. Preserve printer configuration and display preferences during upgrades.
 
