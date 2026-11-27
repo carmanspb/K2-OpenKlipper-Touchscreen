@@ -51,8 +51,8 @@ own progress reads. Other pages reuse the last network snapshot; USB detection
 and free-space checks continue in the background.
 
 Standard Moonraker subscriptions request only fields consumed by the interface
-and model. Toolhead position remains subscribed for coordinate transforms; live
-motion still subscribes only on Move. Dynamic CFS objects retain their complete
+and model. Coordinates are requested on a usable Move page, and tuning values
+on Tune during an active print. Dynamic CFS objects retain their complete
 subscription and discovery behavior. No temperature, operation, fault or touch
 refresh interval is reduced.
 
